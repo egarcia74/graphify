@@ -5,6 +5,8 @@ Full release notes with details on each version: [GitHub Releases](https://githu
 ## 0.9.49 (unreleased)
 
 - Feature: SQL schema extraction now works in every default install — `tree-sitter-sql` moved from the optional `[sql]` extra into the core dependencies (it ships prebuilt wheels for every supported platform, so the install stays toolchain-free). Previously a plain `uv tool install graphifyy` / `pipx install graphifyy` silently contributed nothing for `.sql` files until the user found the extra or ran `pipx inject`. The `sql` extra remains as a harmless alias so existing install scripts keep resolving, and the missing-grammar error now says the install is incomplete instead of pointing at an extra. Existing installs pick this up with the normal `uv tool upgrade graphifyy` / `pipx upgrade graphifyy`.
+- Fix: T-SQL stored procedures and functions are no longer silently dropped from the graph — the ERROR-node recovery now accepts bracket-delimited names (`CREATE PROCEDURE [dbo].[usp_Load]`) and T-SQL's `CREATE OR ALTER`, both of which previously recovered nothing (the `AS BEGIN...END` body idiom never parses structurally, so recovery was these objects' only path into the graph). The two recovery sites now share one pattern, fixing a related defect where a mixed-delimiter name (`dbo.[usp_Mixed]`) produced a second phantom node named after the schema. The `PROC` shorthand is accepted alongside `PROCEDURE`, and the whole-file recovery scan now masks SQL comments so commented-out DDL in a file with an unrelated parse error cannot fabricate routine nodes. Recovered routines are name-only nodes (no body `reads_from` edges), matching the existing PL/pgSQL recovery.
+
 
 ## 0.9.48 (2026-08-20)
 
