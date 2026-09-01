@@ -80,9 +80,13 @@ def test_a_hyperedge_re_emitted_by_the_new_chunk_is_not_duplicated(tmp_path):
     fresh = {"nodes": [{"id": "beta_node", "label": "Beta", "file_type": "concept",
                         "source_file": "notes/group.md"},
                        {"id": "gamma_node", "label": "Gamma", "file_type": "concept",
+                        "source_file": "notes/group.md"},
+                       {"id": "epsilon_node", "label": "Epsilon", "file_type": "concept",
                         "source_file": "notes/group.md"}],
              "edges": [],
-             "hyperedges": [{**HYPEREDGE, "nodes": ["beta_node", "gamma_node"], "label": "The Group v2"}]}
+             "hyperedges": [{**HYPEREDGE,
+                              "nodes": ["beta_node", "gamma_node", "epsilon_node"],
+                              "label": "The Group v2"}]}
     G = build_merge([fresh], _baseline(tmp_path))
     hes = [he for he in G.graph.get("hyperedges", []) if he["id"] == "the_group"]
     assert len(hes) == 1

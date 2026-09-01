@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 
-from .build import _normalize_hyperedge_members
+from .build import _has_minimum_hyperedge_members, _normalize_hyperedge_members
 
 # Labels longer than this many characters, or containing >= this many words,
 # are candidates for being sentence-like rationale text rather than entity names.
@@ -184,9 +184,9 @@ def sanitize_semantic_fragment(fragment: dict) -> dict:
        they're explicitly marked as rationale.
     3. Strips nodes whose only distinguishing field is the label itself
        (empty id — likely LLM hallucination).
-    4. Filters hyperedges so they cannot reference removed or unknown node
-       IDs after the cleanup passes above. A hyperedge with fewer than two
-       surviving members is dropped.
+     4. Filters hyperedges so they cannot reference removed or unknown node
+         IDs after the cleanup passes above. A hyperedge with fewer than three
+         surviving members is dropped.
 
     Returns the same dict for convenience.
     """
@@ -286,12 +286,11 @@ def sanitize_semantic_fragment(fragment: dict) -> dict:
         if not isinstance(he_nodes, list):
             continue
         filtered = [ref for ref in he_nodes if isinstance(ref, str) and ref in surviving_ids]
-        if len(filtered) < 2:
-            # A hyperedge needs at least two surviving members to be meaningful.
+        candidate = {**he, "nodes": filtered}
+        if not _has_minimum_hyperedge_members(candidate):
             continue
         if len(filtered) != len(he_nodes):
-            he = dict(he)
-            he["nodes"] = filtered
+            he = candidate
         keep_hyperedges.append(he)
 
     fragment["nodes"] = keep_nodes

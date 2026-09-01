@@ -41,12 +41,16 @@ def _seed_two_file_graph(tmp_path):
     graph_path = tmp_path / "graph.json"
     nodes = [
         {"id": "a1", "label": "a1", "file_type": "document", "source_file": "a.md"},
+        {"id": "a2", "label": "a2", "file_type": "document", "source_file": "a.md"},
+        {"id": "a3", "label": "a3", "file_type": "document", "source_file": "a.md"},
         {"id": "b1", "label": "b1", "file_type": "document", "source_file": "b.md"},
+        {"id": "b2", "label": "b2", "file_type": "document", "source_file": "b.md"},
+        {"id": "b3", "label": "b3", "file_type": "document", "source_file": "b.md"},
     ]
     hyperedges = [
-        {"id": "he_a", "label": "flow A", "source_file": "a.md", "nodes": ["a1"]},
-        {"id": "he_b", "label": "flow B", "source_file": "b.md", "nodes": ["b1"]},
-        {"id": "he_global", "label": "cross-file flow", "nodes": ["a1", "b1"]},  # no source_file
+        {"id": "he_a", "label": "flow A", "source_file": "a.md", "nodes": ["a1", "a2", "a3"]},
+        {"id": "he_b", "label": "flow B", "source_file": "b.md", "nodes": ["b1", "b2", "b3"]},
+        {"id": "he_global", "label": "cross-file flow", "nodes": ["a1", "b1", "b2"]},
     ]
     _write_graph(graph_path, nodes, [], hyperedges)
     return root, graph_path
@@ -56,9 +60,13 @@ def test_update_preserves_hyperedges_of_unchanged_files(tmp_path):
     root, graph_path = _seed_two_file_graph(tmp_path)
     # Re-extract only b.md, with a fresh hyperedge for it.
     new_chunk = {
-        "nodes": [{"id": "b1", "label": "b1", "file_type": "document", "source_file": "b.md"}],
+        "nodes": [
+            {"id": "b1", "label": "b1", "file_type": "document", "source_file": "b.md"},
+            {"id": "b2", "label": "b2", "file_type": "document", "source_file": "b.md"},
+            {"id": "b3", "label": "b3", "file_type": "document", "source_file": "b.md"},
+        ],
         "edges": [],
-        "hyperedges": [{"id": "he_b_v2", "label": "flow B v2", "source_file": "b.md", "nodes": ["b1"]}],
+        "hyperedges": [{"id": "he_b_v2", "label": "flow B v2", "source_file": "b.md", "nodes": ["b1", "b2", "b3"]}],
     }
     G = build_merge([new_chunk], graph_path, dedup=False, root=root)
     ids = _he_ids(G)
@@ -72,9 +80,13 @@ def test_update_without_root_still_preserves_hyperedges(tmp_path):
     """The runbook omits root; the fallback root must not break preservation."""
     root, graph_path = _seed_two_file_graph(tmp_path)
     new_chunk = {
-        "nodes": [{"id": "b1", "label": "b1", "file_type": "document", "source_file": "b.md"}],
+        "nodes": [
+            {"id": "b1", "label": "b1", "file_type": "document", "source_file": "b.md"},
+            {"id": "b2", "label": "b2", "file_type": "document", "source_file": "b.md"},
+            {"id": "b3", "label": "b3", "file_type": "document", "source_file": "b.md"},
+        ],
         "edges": [],
-        "hyperedges": [{"id": "he_b_v2", "source_file": "b.md", "nodes": ["b1"]}],
+        "hyperedges": [{"id": "he_b_v2", "source_file": "b.md", "nodes": ["b1", "b2", "b3"]}],
     }
     G = build_merge([new_chunk], graph_path, dedup=False)  # no root
     ids = _he_ids(G)
@@ -89,7 +101,7 @@ def test_deleted_file_hyperedges_are_pruned(tmp_path):
     ids = _he_ids(G)
     assert "he_a" not in ids        # deleted file's hyperedge pruned
     assert "he_b" in ids            # untouched file's hyperedge kept
-    assert "he_global" in ids       # global hyperedge kept
+    assert "he_global" not in ids   # deletion leaves fewer than 3 members
     # and its node is gone too
     assert "a1" not in set(G.nodes)
 

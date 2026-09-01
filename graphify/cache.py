@@ -12,6 +12,8 @@ import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from graphify.build import _has_minimum_hyperedge_members
+
 # Output directory name — override with GRAPHIFY_OUT env var for worktrees or
 # shared-output setups. Accepts a relative name ("graphify-out-feature") or an
 # absolute path ("/shared/graphify-out"). Single source of truth in graphify.paths
@@ -1472,6 +1474,8 @@ def save_semantic_cache(
         if src:
             by_file[src]["edges"].append(e)
     for h in (hyperedges or []):
+        if not _has_minimum_hyperedge_members(h):
+            continue
         h = _normalized(h)
         src = h.get("source_file", "")
         if src:
@@ -1615,6 +1619,11 @@ def save_semantic_cache(
             )
             if is_partial:
                 result = {**result, "partial": True}
+            result["hyperedges"] = [
+                h
+                for h in result.get("hyperedges", [])
+                if _has_minimum_hyperedge_members(h)
+            ]
             # A semantic extraction with zero nodes and zero hyperedges is not a valid
             # standalone extraction (#2927): edge-only or empty results must not be
             # cached, so that subsequent runs can re-dispatch and retry the file (#933/#1666).

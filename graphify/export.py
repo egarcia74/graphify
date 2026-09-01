@@ -15,7 +15,7 @@ import networkx as nx
 from networkx.readwrite import json_graph
 from graphify.security import sanitize_label
 from graphify.analyze import _node_community_map
-from graphify.build import edge_data
+from graphify.build import _has_minimum_hyperedge_members, edge_data
 from graphify.paths import stem_filename_budget
 
 from graphify.exporters.graphdb import push_to_falkordb, push_to_neo4j  # noqa: E402,F401
@@ -179,7 +179,31 @@ _CONFIDENCE_SCORE_DEFAULTS = {"EXTRACTED": 1.0, "INFERRED": 0.55, "AMBIGUOUS": 0
 
 def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
     """Store hyperedges in the graph's metadata dict."""
-    existing = G.graph.get("hyperedges", [])
+
+    def valid_candidate(h: object) -> dict | None:
+        if not isinstance(h, dict):
+            return None
+        members = h.get("nodes")
+        if not isinstance(members, list):
+            return None
+        surviving = []
+        seen_members = set()
+        for member in members:
+            try:
+                hash(member)
+            except TypeError:
+                continue
+            if member in G and member not in seen_members:
+                surviving.append(member)
+                seen_members.add(member)
+        candidate = h if surviving == members else {**h, "nodes": surviving}
+        return candidate if _has_minimum_hyperedge_members(candidate) else None
+
+    existing = [
+        candidate
+        for h in G.graph.get("hyperedges", [])
+        if (candidate := valid_candidate(h)) is not None
+    ]
     # Skip id-less persisted entries when seeding the dedup set (#2775): the
     # semantic extractor emits hyperedges with no `id` and build.py persists them
     # verbatim, so a prior graph.json can contain id-less hyperedges. A hard
@@ -188,9 +212,12 @@ def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
     # incoming set.
     seen_ids = {h["id"] for h in existing if h.get("id")}
     for h in hyperedges:
-        if h.get("id") and h["id"] not in seen_ids:
-            existing.append(h)
-            seen_ids.add(h["id"])
+        candidate = valid_candidate(h)
+        if candidate is None:
+            continue
+        if candidate.get("id") and candidate["id"] not in seen_ids:
+            existing.append(candidate)
+            seen_ids.add(candidate["id"])
     G.graph["hyperedges"] = existing
 
 

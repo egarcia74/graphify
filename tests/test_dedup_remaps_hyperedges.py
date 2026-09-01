@@ -93,9 +93,9 @@ def test_two_members_collapsing_onto_one_survivor_dedupe():
     """They were the same entity, so one entry is right. The old code shrank the
     group AND lost the participant; this shrinks it because the members really
     were duplicates."""
-    hes = [{"id": "h", "nodes": ["a_old", "a_new", "b"]}]
+    hes = [{"id": "h", "nodes": ["a_old", "a_new", "b", "c"]}]
     _remap_hyperedge_members(hes, {"a_old": "a", "a_new": "a"})
-    assert hes[0]["nodes"] == ["a", "b"]
+    assert hes[0]["nodes"] == ["a", "b", "c"]
 
 
 def test_member_order_is_preserved():
@@ -105,9 +105,20 @@ def test_member_order_is_preserved():
 
 
 def test_object_members_keep_their_other_fields():
-    hes = [{"id": "h", "nodes": [{"id": "x_old", "role": "subject"}]}]
+    hes = [{
+        "id": "h",
+        "nodes": [
+            {"id": "x_old", "role": "subject"},
+            {"id": "y", "role": "object"},
+            {"id": "z", "role": "context"},
+        ],
+    }]
     _remap_hyperedge_members(hes, {"x_old": "x"})
-    assert hes[0]["nodes"] == [{"id": "x", "role": "subject"}]
+    assert hes[0]["nodes"] == [
+        {"id": "x", "role": "subject"},
+        {"id": "y", "role": "object"},
+        {"id": "z", "role": "context"},
+    ]
 
 
 @pytest.mark.parametrize("he", [
@@ -131,16 +142,14 @@ def test_chained_collapse_lands_on_the_final_survivor():
     """A dedup remap built from union-find is fully flattened (path-compressed),
     so a member of a chained component (a_old -> a_mid -> a) rewires directly to
     the final survivor in a single lookup, never to an intermediate."""
-    hes = [{"id": "h", "nodes": ["a_old", "a_mid", "b"]}]
+    hes = [{"id": "h", "nodes": ["a_old", "a_mid", "b", "c"]}]
     # what components()/UnionFind produces: every non-winner maps to the winner
     _remap_hyperedge_members(hes, {"a_old": "a", "a_mid": "a"})
-    assert hes[0]["nodes"] == ["a", "b"]
+    assert hes[0]["nodes"] == ["a", "b", "c"]
 
 
-def test_a_hyperedge_collapsing_to_one_member_is_kept():
-    """Sub-two-member hyperedges are kept by design (build_from_json only drops
-    the zero-valid-member case). Pin it so a future refactor doesn't silently
-    start dropping a 1-member group after a collapse."""
+def test_a_hyperedge_collapsing_to_one_member_is_dropped():
+    """A deduplicated singleton is no longer a group relationship."""
     hes = [{"id": "h", "nodes": ["a_old", "a_new"]}]
     _remap_hyperedge_members(hes, {"a_old": "a", "a_new": "a"})
-    assert hes[0]["nodes"] == ["a"]  # collapsed to one, still present
+    assert hes == []

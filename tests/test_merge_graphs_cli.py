@@ -191,8 +191,8 @@ def test_merge_graphs_carries_hyperedges_from_all_inputs(tmp_path):
     # relabeled to the prefixed node ids, in BOTH persistence slots.
     a = tmp_path / "alpha" / "graphify-out" / "graph.json"
     b = tmp_path / "beta" / "graphify-out" / "graph.json"
-    _write_with_hyperedges(a, ["x", "y"], [{"id": "h_alpha", "nodes": ["x", "y"]}])
-    _write_with_hyperedges(b, ["p", "q"], [{"id": "h_beta", "nodes": ["p", "q"]}])
+    _write_with_hyperedges(a, ["x", "y", "z"], [{"id": "h_alpha", "nodes": ["x", "y", "z"]}])
+    _write_with_hyperedges(b, ["p", "q", "r"], [{"id": "h_beta", "nodes": ["p", "q", "r"]}])
     out = tmp_path / "merged.json"
 
     r = _run(["merge-graphs", str(a), str(b), "--out", str(out)], tmp_path)
@@ -218,9 +218,11 @@ def test_merge_graphs_hyperedges_dedup_on_shared_prefixed_id(tmp_path):
     # duplicate entries in the merged output (attach_hyperedges dedups by id).
     a = tmp_path / "alpha" / "graphify-out" / "graph.json"
     b = tmp_path / "beta" / "graphify-out" / "graph.json"
-    he = {"id": "h_alpha", "nodes": ["x"]}
-    _write_with_hyperedges(a, ["x"], [he, dict(he)])
-    _write_with_hyperedges(b, ["p"], [{"id": "h_beta", "nodes": ["p"]}])
+    he = {"id": "h_alpha", "nodes": ["x", "y", "z"]}
+    _write_with_hyperedges(a, ["x", "y", "z"], [he, dict(he)])
+    _write_with_hyperedges(
+        b, ["p", "q", "r"], [{"id": "h_beta", "nodes": ["p", "q", "r"]}]
+    )
     out = tmp_path / "merged.json"
 
     r = _run(["merge-graphs", str(a), str(b), "--out", str(out)], tmp_path)
@@ -236,7 +238,7 @@ def test_merge_graphs_reads_top_level_only_hyperedges(tmp_path):
     # level used to lose them entirely.
     a = tmp_path / "alpha" / "graphify-out" / "graph.json"
     b = tmp_path / "beta" / "graphify-out" / "graph.json"
-    _write_with_hyperedges(a, ["x"], [{"id": "h_top", "nodes": ["x"]}],
+    _write_with_hyperedges(a, ["x", "y", "z"], [{"id": "h_top", "nodes": ["x", "y", "z"]}],
                            top_level_only=True)
     _write_with_hyperedges(b, ["p"], [])
     out = tmp_path / "merged.json"
@@ -245,7 +247,7 @@ def test_merge_graphs_reads_top_level_only_hyperedges(tmp_path):
     assert r.returncode == 0, r.stderr
     data = json.loads(out.read_text())
     assert [h["id"] for h in data["hyperedges"]] == ["alpha::h_top"]
-    assert data["hyperedges"][0]["nodes"] == ["alpha::x"]
+    assert data["hyperedges"][0]["nodes"] == ["alpha::x", "alpha::y", "alpha::z"]
 
 
 

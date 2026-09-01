@@ -40,6 +40,19 @@ from .validate import validate_extraction
 # legacy items that predate the _origin marker (#2334).
 _AST_LOC_RE = re.compile(r"^L\d")
 
+# Hyperedges model group relationships. Pairwise relationships belong in the
+# ordinary edge set, so a hyperedge is meaningful only with 3+ members.
+MIN_HYPEREDGE_MEMBERS = 3
+
+
+def _has_minimum_hyperedge_members(he: object) -> bool:
+    """Return whether *he* has enough canonical members to form a group."""
+    return (
+        isinstance(he, dict)
+        and isinstance(he.get("nodes"), list)
+        and len(he["nodes"]) >= MIN_HYPEREDGE_MEMBERS
+    )
+
 
 def _is_ast_tier(item: dict) -> bool:
     """AST vs semantic tier. _origin wins when present; unstamped legacy items
@@ -1288,10 +1301,9 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
             # G.graph["hyperedges"] verbatim and reach graph.json dangling,
             # even from a live (non-cache) extraction. Mirror the pairwise-edge
             # handling above: remap mismatched ids via normalization first,
-            # then drop members that still don't resolve; drop the hyperedge
-            # itself when no valid member remains (single-member hyperedges
-            # are legal in this codebase, e.g. a per-file flow, so we prune
-            # rather than require two survivors).
+            # then drop members that still don't resolve. If pruning leaves a
+            # pair (or singleton), the relationship belongs in ordinary edges,
+            # not the hyperedge set, so drop the hyperedge as a whole.
             if isinstance(he, dict) and isinstance(he.get("nodes"), list):
                 valid_members = []
                 for m in he["nodes"]:
@@ -1303,10 +1315,11 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
                         m = norm_to_id.get(_normalize_id(m), m)
                     if m in node_set:
                         valid_members.append(m)
-                if not valid_members:
+                if len(valid_members) < MIN_HYPEREDGE_MEMBERS:
                     print(
                         f"[graphify] WARNING: dropping hyperedge "
-                        f"{he.get('id', '?')!r} — none of its members "
+                        f"{he.get('id', '?')!r} — fewer than "
+                        f"{MIN_HYPEREDGE_MEMBERS} members from "
                         f"{he.get('nodes')!r} match built nodes.",
                         file=sys.stderr,
                     )
@@ -1997,6 +2010,20 @@ def build_merge(
                     f"graph, already clean.",
                     file=sys.stderr,
                 )
+
+        # Hyperedges were validated when build() assembled the graph, before
+        # this deleted-source prune removed nodes. Revalidate their members
+        # against the final graph so a carried group cannot degrade to a pair
+        # or retain a dangling member after an incremental update.
+        final_hyperedges = []
+        for he in G.graph.get("hyperedges", []):
+            if not isinstance(he, dict) or not isinstance(he.get("nodes"), list):
+                continue
+            surviving = list(dict.fromkeys(member for member in he["nodes"] if member in G))
+            candidate = he if surviving == he["nodes"] else {**he, "nodes": surviving}
+            if _has_minimum_hyperedge_members(candidate):
+                final_hyperedges.append(candidate)
+        G.graph["hyperedges"] = final_hyperedges
 
     # Safety check: refuse to SILENTLY drop nodes (#479, reworked in #2497).
     # The old count comparison ran against the post-replace `existing_nodes`,

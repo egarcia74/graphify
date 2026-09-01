@@ -1341,11 +1341,16 @@ def test_save_semantic_cache_drops_hyperedges_touching_skipped_nodes(tmp_path):
     nodes = [
         {"id": "kept", "source_file": "allowed.md"},
         {"id": "kept2", "source_file": "allowed.md"},
+        {"id": "kept3", "source_file": "allowed.md"},
         {"id": "stray", "source_file": "outside.md"},
     ]
     hyperedges = [
         {"id": "he_bad", "nodes": ["kept", "stray"], "source_file": "allowed.md"},
-        {"id": "he_ok", "nodes": ["kept", "kept2"], "source_file": "allowed.md"},
+        {
+            "id": "he_ok",
+            "nodes": ["kept", "kept2", "kept3"],
+            "source_file": "allowed.md",
+        },
     ]
     with pytest.warns(RuntimeWarning, match="out-of-scope source_file"):
         save_semantic_cache(
@@ -1359,7 +1364,7 @@ def test_save_semantic_cache_drops_hyperedges_touching_skipped_nodes(tmp_path):
     assert {h["id"] for h in cached_hyperedges} == {"he_ok"}
 
 
-def test_save_semantic_cache_unscoped_preserves_dangling_refs_verbatim(tmp_path):
+def test_save_semantic_cache_unscoped_drops_under_cardinality_hyperedges(tmp_path):
     """#1916 guard-rail: unscoped callers (allowed_source_files=None) must stay
     byte-identical — no pruning happens even when an edge or hyperedge
     references a node grouped under a ghost file."""
@@ -1383,7 +1388,25 @@ def test_save_semantic_cache_unscoped_preserves_dangling_refs_verbatim(tmp_path)
         (cache_dir(tmp_path, "semantic") / f"{file_hash(doc, tmp_path)}.json").read_text()
     )
     assert raw["edges"] == edges
-    assert raw["hyperedges"] == hyperedges
+    assert raw["hyperedges"] == []
+
+
+def test_save_semantic_cache_drops_two_member_hyperedge(tmp_path):
+    """Pairwise relationships must not be persisted as hyperedges."""
+    from graphify.cache import load_cached, save_semantic_cache
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    nodes = [
+        {"id": "a", "source_file": "doc.md"},
+        {"id": "b", "source_file": "doc.md"},
+    ]
+    hyperedges = [{"id": "pair", "nodes": ["a", "b"], "source_file": "doc.md"}]
+
+    assert save_semantic_cache(nodes, [], hyperedges, root=tmp_path) == 1
+    cached = load_cached(doc, root=tmp_path, kind="semantic")
+    assert cached is not None
+    assert cached["hyperedges"] == []
 
 
 def test_save_semantic_cache_merge_existing_prunes_only_incoming(tmp_path):
@@ -1426,6 +1449,38 @@ def test_save_semantic_cache_merge_existing_prunes_only_incoming(tmp_path):
     assert ("a", "a") in pairs, "prior entry's valid edge must survive the union"
     assert ("a", "b") in pairs, "incoming valid edge must be kept"
     assert not any("stray" in p for p in pairs)
+
+
+def test_save_semantic_cache_merge_existing_heals_legacy_pair(tmp_path):
+    from graphify.cache import load_cached, save_semantic_cache
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    save_semantic_cache(
+        [{"id": "a", "source_file": "doc.md"}],
+        [],
+        root=tmp_path,
+        merge_existing=True,
+    )
+    cache = load_cached(doc, root=tmp_path, kind="semantic")
+    assert cache is not None
+    cache["hyperedges"] = [{"id": "legacy_pair", "nodes": ["a", "b"]}]
+
+    from graphify.cache import cache_dir, file_hash
+    import json
+
+    path = cache_dir(tmp_path, "semantic") / f"{file_hash(doc, tmp_path)}.json"
+    path.write_text(json.dumps(cache), encoding="utf-8")
+    save_semantic_cache(
+        [{"id": "b", "source_file": "doc.md"}],
+        [],
+        root=tmp_path,
+        merge_existing=True,
+    )
+
+    healed = load_cached(doc, root=tmp_path, kind="semantic")
+    assert healed is not None
+    assert healed["hyperedges"] == []
 
 
 # --- extraction-prompt fingerprinting (#1939) -------------------------------

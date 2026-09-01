@@ -754,11 +754,14 @@ def test_missing_manifest_code_only_preserves_semantic_layer(monkeypatch, tmp_pa
                            "source_file": "README.md", "file_type": "document"})
     graph["nodes"].append({"id": "doc_readme_b", "label": "Concept B",
                            "source_file": "README.md", "file_type": "document"})
+    graph["nodes"].append({"id": "doc_readme_c", "label": "Concept C",
+                           "source_file": "README.md", "file_type": "document"})
     graph.setdefault("edges", []).append(
         {"source": "doc_readme_a", "target": "doc_readme_b",
          "relation": "relates_to", "source_file": "README.md"})
     graph.setdefault("hyperedges", []).append(
-        {"id": "h1", "label": "Shared", "nodes": ["doc_readme_a", "doc_readme_b"],
+        {"id": "h1", "label": "Shared",
+         "nodes": ["doc_readme_a", "doc_readme_b", "doc_readme_c"],
          "relation": "participate_in", "source_file": "README.md"})
     graph_path.write_text(json.dumps(graph))
     (graphify_out / ".graphify_semantic_marker").write_text(

@@ -1140,6 +1140,8 @@ def _write_two_tier_graph(graph_path):
              "_origin": "ast"},
             {"id": "auth_flow", "label": "Auth Flow", "file_type": "concept",
              "source_file": "docs/readme.md", "source_location": None},
+            {"id": "auth_policy", "label": "Auth Policy", "file_type": "concept",
+             "source_file": "docs/readme.md", "source_location": None},
         ],
         "links": [
             {"source": "docs_readme", "target": "docs_readme_intro",
@@ -1149,7 +1151,7 @@ def _write_two_tier_graph(graph_path):
         ],
         "hyperedges": [
             {"id": "auth_group", "label": "Auth Group",
-             "nodes": ["docs_readme", "auth_flow"], "relation": "form",
+             "nodes": ["docs_readme", "auth_flow", "auth_policy"], "relation": "form",
              "confidence": "INFERRED", "source_file": "docs/readme.md"},
         ],
     }
@@ -1553,18 +1555,28 @@ def test_build_from_json_prunes_dangling_hyperedge_members(capsys):
         "nodes": [
             {"id": "alpha", "label": "alpha", "file_type": "code", "source_file": "a.py"},
             {"id": "beta", "label": "beta", "file_type": "code", "source_file": "a.py"},
+            {"id": "gamma", "label": "gamma", "file_type": "code", "source_file": "a.py"},
         ],
         "edges": [],
         "hyperedges": [
-            {"id": "he_partial", "nodes": ["alpha", "beta", "ghost_member"], "source_file": "a.py"},
+            {
+                "id": "he_partial",
+                "nodes": ["alpha", "beta", "gamma", "ghost_member"],
+                "source_file": "a.py",
+            },
+            {
+                "id": "he_below_minimum",
+                "nodes": ["alpha", "beta", "ghost_member"],
+                "source_file": "a.py",
+            },
             {"id": "he_all_ghost", "nodes": ["ghost1", "ghost2"], "source_file": "a.py"},
         ],
     }
     G = build_from_json(ext)
     hes = {h["id"]: h for h in G.graph.get("hyperedges", [])}
     assert set(hes) == {"he_partial"}, "an all-dangling hyperedge must be dropped"
-    assert hes["he_partial"]["nodes"] == ["alpha", "beta"]
-    assert "he_all_ghost" in capsys.readouterr().err
+    assert hes["he_partial"]["nodes"] == ["alpha", "beta", "gamma"]
+    assert "he_below_minimum" in capsys.readouterr().err
 
 
 # --- foreign-absolute source_file must not leak into IDs --------------------

@@ -69,7 +69,7 @@ def test_float_id_is_coerced_too():
 def test_legacy_from_to_endpoints_are_coerced():
     """dedup reads the legacy from/to aliases (#803), so they need it as well."""
     ext = {
-        "nodes": [_node(10, "Alpha"), _node("b", "Beta")],
+        "nodes": [_node(10, "Alpha"), _node("b", "Beta"), _node("c", "Gamma")],
         "edges": [{"from": 10, "to": "b", "relation": "uses", "confidence": "EXTRACTED"}],
     }
     G = build([ext], dedup=True)
@@ -78,13 +78,13 @@ def test_legacy_from_to_endpoints_are_coerced():
 
 def test_hyperedge_members_are_coerced_with_their_nodes():
     ext = {
-        "nodes": [_node(10, "Alpha"), _node("b", "Beta")],
+        "nodes": [_node(10, "Alpha"), _node("b", "Beta"), _node("c", "Gamma")],
         "edges": [],
-        "hyperedges": [{"id": "he1", "label": "grp", "nodes": [10, "b"]}],
+        "hyperedges": [{"id": "he1", "label": "grp", "nodes": [10, "b", "c"]}],
     }
     G = build([ext], dedup=True)
     members = G.graph["hyperedges"][0]["nodes"]
-    assert members == ["10", "b"]
+    assert members == ["10", "b", "c"]
 
 
 def test_build_from_json_coerces_on_the_direct_entry():

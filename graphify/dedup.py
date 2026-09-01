@@ -474,6 +474,7 @@ def _remap_hyperedge_members(hyperedges: list[dict], remap: dict[str, str]) -> N
     *and* lost the participant. Order is preserved so a rebuilt graph does not
     churn.
     """
+    kept: list[dict] = []
     for he in hyperedges:
         if not isinstance(he, dict):
             continue
@@ -498,6 +499,9 @@ def _remap_hyperedge_members(hyperedges: list[dict], remap: dict[str, str]) -> N
                 seen.add(new_id)
             rewired.append(entry)
         he["nodes"] = rewired
+        if len(rewired) >= 3:
+            kept.append(he)
+    hyperedges[:] = kept
 
 
 def deduplicate_entities(

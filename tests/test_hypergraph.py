@@ -72,13 +72,15 @@ def test_build_from_json_relativizes_hyperedge_source_file(tmp_path):
     extraction = {
         "nodes": [
             {"id": "a", "label": "A", "file_type": "document", "source_file": str(abs_doc)},
+            {"id": "b", "label": "B", "file_type": "document", "source_file": str(abs_doc)},
+            {"id": "c", "label": "C", "file_type": "document", "source_file": str(abs_doc)},
         ],
         "edges": [],
         "hyperedges": [
             {
                 "id": "arch",
                 "label": "Architecture",
-                "nodes": ["a"],
+                "nodes": ["a", "b", "c"],
                 "relation": "participate_in",
                 "confidence": "INFERRED",
                 "confidence_score": 0.75,
@@ -110,12 +112,14 @@ def test_build_from_json_missing_hyperedges_key():
 
 def test_attach_hyperedges_adds_new():
     G = nx.Graph()
+    G.add_nodes_from(["A", "B", "C"])
     attach_hyperedges(G, [{"id": "auth_flow", "label": "Auth Flow", "nodes": ["A", "B", "C"]}])
     assert len(G.graph["hyperedges"]) == 1
 
 
 def test_attach_hyperedges_deduplicates():
     G = nx.Graph()
+    G.add_nodes_from(["A", "B", "C"])
     h = {"id": "auth_flow", "label": "Auth Flow", "nodes": ["A", "B", "C"]}
     attach_hyperedges(G, [h])
     attach_hyperedges(G, [h])  # second call with same id should not duplicate
@@ -124,6 +128,7 @@ def test_attach_hyperedges_deduplicates():
 
 def test_attach_hyperedges_multiple_different_ids():
     G = nx.Graph()
+    G.add_nodes_from(["A", "B", "C", "D", "E", "F"])
     attach_hyperedges(G, [
         {"id": "flow_a", "label": "Flow A", "nodes": ["A", "B", "C"]},
         {"id": "flow_b", "label": "Flow B", "nodes": ["D", "E", "F"]},
@@ -133,6 +138,7 @@ def test_attach_hyperedges_multiple_different_ids():
 
 def test_attach_hyperedges_skips_entry_without_id():
     G = nx.Graph()
+    G.add_nodes_from(["A", "B", "C"])
     attach_hyperedges(G, [{"label": "No ID", "nodes": ["A", "B", "C"]}])
     assert G.graph.get("hyperedges", []) == []
 
@@ -144,8 +150,11 @@ def test_attach_hyperedges_tolerates_id_less_persisted():
     # persisted set with a hard `h["id"]` and died with `KeyError: 'id'`, writing
     # nothing. Reading the persisted set must tolerate missing ids.
     G = nx.DiGraph()
-    G.graph["hyperedges"] = [{"nodes": ["a", "b"], "type": "project", "attributes": {}}]
-    attach_hyperedges(G, [{"id": "flow_a", "label": "Flow A", "nodes": ["A", "B"]}])
+    G.add_nodes_from(["a", "b", "c", "A", "B", "C"])
+    G.graph["hyperedges"] = [
+        {"nodes": ["a", "b", "c"], "type": "project", "attributes": {}}
+    ]
+    attach_hyperedges(G, [{"id": "flow_a", "label": "Flow A", "nodes": ["A", "B", "C"]}])
     # No crash; the id-less persisted entry is retained and the new id-bearing
     # incoming hyperedge is appended.
     assert len(G.graph["hyperedges"]) == 2
@@ -155,10 +164,11 @@ def test_attach_hyperedges_tolerates_many_id_less_persisted():
     """The real corpus had 183/234 persisted hyperedges id-less: all of them must
     load without crashing and be retained (#2775)."""
     G = nx.DiGraph()
+    G.add_nodes_from(["a", "b", "c", "A", "B", "C"])
     G.graph["hyperedges"] = [
-        {"nodes": ["a", "b"], "type": "project", "attributes": {}} for _ in range(5)
+        {"nodes": ["a", "b", "c"], "type": "project", "attributes": {}} for _ in range(5)
     ]
-    attach_hyperedges(G, [{"id": "flow_a", "nodes": ["A", "B"]}])
+    attach_hyperedges(G, [{"id": "flow_a", "nodes": ["A", "B", "C"]}])
     assert len(G.graph["hyperedges"]) == 6  # 5 id-less retained + 1 appended
 
 
@@ -166,9 +176,20 @@ def test_attach_hyperedges_treats_empty_id_as_id_less():
     """An empty-string id is falsy, so it is treated the same as a missing id:
     it seeds nothing into the dedup set and does not crash."""
     G = nx.DiGraph()
-    G.graph["hyperedges"] = [{"id": "", "nodes": ["a", "b"], "type": "project"}]
-    attach_hyperedges(G, [{"id": "flow_a", "nodes": ["A", "B"]}])
+    G.add_nodes_from(["a", "b", "c", "A", "B", "C"])
+    G.graph["hyperedges"] = [{"id": "", "nodes": ["a", "b", "c"], "type": "project"}]
+    attach_hyperedges(G, [{"id": "flow_a", "nodes": ["A", "B", "C"]}])
     assert len(G.graph["hyperedges"]) == 2
+
+
+def test_attach_hyperedges_drops_legacy_two_member_entries():
+    G = nx.Graph()
+    G.add_nodes_from(["a", "b", "c"])
+    G.graph["hyperedges"] = [{"id": "legacy_pair", "nodes": ["a", "b"]}]
+
+    attach_hyperedges(G, [{"id": "valid_group", "nodes": ["a", "b", "c"]}])
+
+    assert [he["id"] for he in G.graph["hyperedges"]] == ["valid_group"]
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +301,8 @@ def _alias_extraction():
             {"id": "a", "label": "A", "file_type": "code", "source_file": "m.py"},
             {"id": "b", "label": "B", "file_type": "code", "source_file": "m.py"},
             {"id": "c", "label": "C", "file_type": "code", "source_file": "m.py"},
+            {"id": "c", "label": "C", "file_type": "code", "source_file": "m.py"},
+            {"id": "c", "label": "C", "file_type": "code", "source_file": "m.py"},
         ],
         "edges": [],
         "hyperedges": [
@@ -305,12 +328,13 @@ def test_build_dedups_alias_members_preserving_order():
         "nodes": [
             {"id": "a", "label": "A", "file_type": "code", "source_file": "m.py"},
             {"id": "b", "label": "B", "file_type": "code", "source_file": "m.py"},
+            {"id": "c", "label": "C", "file_type": "code", "source_file": "m.py"},
         ],
         "edges": [],
-        "hyperedges": [{"id": "h", "label": "x", "members": ["a", "a", "b"]}],
+        "hyperedges": [{"id": "h", "label": "x", "members": ["a", "a", "b", "c"]}],
     }
     G = build_from_json(extraction)
-    assert G.graph["hyperedges"][0]["nodes"] == ["a", "b"]
+    assert G.graph["hyperedges"][0]["nodes"] == ["a", "b", "c"]
     assert "members" not in G.graph["hyperedges"][0]
 
 
@@ -323,12 +347,12 @@ def test_build_canonical_nodes_wins_over_alias():
         ],
         "edges": [],
         "hyperedges": [
-            {"id": "h", "label": "x", "nodes": ["a", "b"], "members": ["x"]},
+            {"id": "h", "label": "x", "nodes": ["a", "b", "x"], "members": ["b"]},
         ],
     }
     G = build_from_json(extraction)
     he = G.graph["hyperedges"][0]
-    assert he["nodes"] == ["a", "b"]  # canonical untouched
+    assert he["nodes"] == ["a", "b", "x"]  # canonical untouched
     assert "members" not in he  # stray alias dropped
 
 
@@ -341,15 +365,16 @@ def test_build_rekeys_alias_keyed_hyperedge_members():
         "nodes": [
             {"id": "mod_foo", "label": "foo", "file_type": "code", "source_file": "pkg/mod.py"},
             {"id": "mod_bar", "label": "bar", "file_type": "code", "source_file": "pkg/mod.py"},
+            {"id": "mod_baz", "label": "baz", "file_type": "code", "source_file": "pkg/mod.py"},
         ],
         "edges": [],
         "hyperedges": [
-            {"id": "h", "label": "x", "members": ["mod_foo", "mod_bar"]},
+            {"id": "h", "label": "x", "members": ["mod_foo", "mod_bar", "mod_baz"]},
         ],
     }
     G = build_from_json(extraction)
     he = G.graph["hyperedges"][0]
-    assert he["nodes"] == ["pkg_mod_foo", "pkg_mod_bar"]
+    assert he["nodes"] == ["pkg_mod_foo", "pkg_mod_bar", "pkg_mod_baz"]
 
 
 def test_build_warns_once_per_aliased_hyperedge(capsys):
