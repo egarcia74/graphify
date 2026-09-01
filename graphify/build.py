@@ -34,7 +34,7 @@ from .paths import default_graph_json as _default_graph_json
 from .paths import is_absolute_any_platform as _is_abs
 from .validate import validate_extraction
 
- 
+
 # Deterministic (AST) extractors emit source_location "L<line>"; the semantic
 # extraction spec emits null. Used by _is_ast_tier as a shape fallback for
 # legacy items that predate the _origin marker (#2334).
