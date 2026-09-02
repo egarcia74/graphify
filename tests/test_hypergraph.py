@@ -300,7 +300,7 @@ def test_canonical_hyperedge_rejects_a_non_dict(he):
     assert canonical_hyperedge(he) is None
 
 
-@pytest.mark.parametrize("junk", [None, ""])
+@pytest.mark.parametrize("junk", [None, "", True, False])
 def test_canonical_hyperedge_does_not_count_an_unusable_member_id(junk):
     """`None` and `""` can never name a node, so they must not pad the count.
 
@@ -314,10 +314,14 @@ def test_canonical_hyperedge_does_not_count_an_unusable_member_id(junk):
     assert kept["nodes"] == ["a", "b", "c"]
 
 
-def test_canonical_hyperedge_keeps_a_numeric_member():
-    """A numeric id is legitimate — _coerce_non_string_ids str-coerces it
-    elsewhere — so it must not be swept up with the unusable refs."""
-    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", 7]})["nodes"] == ["a", "b", 7]
+@pytest.mark.parametrize("number", [7, 0])
+def test_canonical_hyperedge_keeps_a_numeric_member(number):
+    """A numeric id is legitimate — `_coerce_id` turns 7 into "7" and 0 into "0",
+    so it can name a real node and must not be swept up with the unusable refs.
+    `0` in particular must survive the boolean rejection next to it."""
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", number]})["nodes"] == [
+        "a", "b", number,
+    ]
 
 
 def test_canonical_hyperedge_keeps_a_group_exactly_at_the_minimum():

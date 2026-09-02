@@ -658,14 +658,26 @@ def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int
         if isinstance(h, dict) and h.get("source_file") not in stale
         and (c := _canonical_he(h, kept_ids)) is not None
     ]
-    if n_removed == 0 and len(kept_edges) == len(data.get(links_key, [])) and (
-        kept_hyper == raw_hyper
+    # The nested slot has to be part of the change test, not just the write.
+    # The pre-revalidation pruner filtered only the top-level list, so an
+    # upgraded graph.json can carry a stale nested copy of a group the top level
+    # already lost. Comparing the top level alone would find nothing to do and
+    # return early, leaving that copy for _zero_node_stamped_semantic_sources to
+    # keep counting as coverage (#2927).
+    _nested = (data.get("graph") or {}).get("hyperedges") if isinstance(data.get("graph"), dict) else None
+    _nested_needs_sync = isinstance(_nested, list) and _nested != kept_hyper
+    if (
+        n_removed == 0
+        and len(kept_edges) == len(data.get(links_key, []))
+        and kept_hyper == raw_hyper
+        and not _nested_needs_sync
     ):
         return 0
-    if kept_hyper != raw_hyper:
+    if kept_hyper != raw_hyper or _nested_needs_sync:
         # Worded for a content change, not a drop count: the comparison above is
         # by value, so this also fires when a member was pruned from a group that
-        # still has enough left, or when a legacy alias-keyed entry was healed.
+        # still has enough left, when a legacy alias-keyed entry was healed, or
+        # when only a stale nested copy needed reconciling.
         print(
             f"[graphify extract] rewrote {len(kept_hyper)} hyperedge(s) in "
             f"{graph_path.name} ({len(raw_hyper) - len(kept_hyper)} dropped below "

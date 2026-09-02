@@ -1430,6 +1430,37 @@ def test_prune_graph_json_sources_tolerates_an_unhashable_node_id(tmp_path):
     assert len(data["nodes"]) == 5
 
 
+def test_prune_graph_json_sources_reconciles_a_stale_nested_slot(tmp_path):
+    """The pre-revalidation pruner filtered only the top-level slot, so an
+    upgraded graph.json can carry a stale nested copy of a group the top level
+    already lost. Preferring the top level whenever it is list-shaped would find
+    nothing to change, return early, and leave that copy in place — where
+    _zero_node_stamped_semantic_sources (#2927) still unions it and keeps the
+    source looking covered."""
+    import json
+
+    from graphify.cli import _prune_graph_json_sources
+
+    graph_path = tmp_path / "graph.json"
+    graph_path.write_text(json.dumps({
+        "nodes": [{"id": "a", "source_file": "live.py"}],
+        "links": [],
+        # The skew: nested still holds what the top level already dropped.
+        "graph": {"hyperedges": [
+            {"id": "ghost_group", "nodes": ["x", "y", "z"], "source_file": "stale.md"},
+        ]},
+        "hyperedges": [],
+    }), encoding="utf-8")
+
+    _prune_graph_json_sources(graph_path, ["stale.md"])
+    data = _read_graph(graph_path)
+    assert data["graph"]["hyperedges"] == [], (
+        "the stale nested copy must be reconciled, not ignored because the "
+        "top-level slot already looks clean"
+    )
+    assert data["hyperedges"] == []
+
+
 def test_prune_graph_json_sources_leaves_a_clean_graph_untouched(tmp_path):
     """Nothing to prune must mean no rewrite at all (the caller reports 0)."""
     import json

@@ -198,7 +198,7 @@ def _coerce_hyperedge_member_refs(he: dict, members: list) -> list:
                 )
                 continue
             ref = inner
-        elif not _hashable(ref) or ref in (None, ""):
+        elif not _hashable(ref) or ref in (None, "") or isinstance(ref, bool):
             # `None`/`""` are hashable but can never name a node, and they were
             # padding the cardinality count: the semantic cache gate has no node
             # set to filter members against, so a two-real-member group with a
@@ -206,9 +206,15 @@ def _coerce_hyperedge_member_refs(he: dict, members: list) -> list:
             # build_from_json's revalidation — a cache hit yielding no semantic
             # data, with the file's manifest stamp saying it was covered. Drops
             # them here so every consumer agrees, and so a bare `None` is treated
-            # the same as the `{"id": None}` object member above. `0` and `False`
-            # are NOT swept up: `ref in (None, "")` is equality, and a numeric id
-            # is legitimate (_coerce_non_string_ids str-coerces one elsewhere).
+            # the same as the `{"id": None}` object member above.
+            #
+            # Booleans go too, for the reason `_coerce_id` already refuses to
+            # str-coerce them: `True` is not a number the model meant to name a
+            # node, so it can never match a node id, and counting it would pad
+            # the cardinality exactly as `None` did. A genuine numeric id DOES
+            # survive — `_coerce_id` turns 7 into "7" and 0 into "0" — and the
+            # `isinstance(ref, bool)` test keeps `0`/`1` out of the boolean case
+            # despite bool subclassing int.
             print(
                 f"[graphify] WARNING: hyperedge "
                 f"'{he.get('id', '?')}' has an unusable member reference "
