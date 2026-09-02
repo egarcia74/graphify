@@ -627,10 +627,17 @@ def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int
         and e.get("source") not in removed_ids
         and e.get("target") not in removed_ids
     ]
-    # `or []` — a legacy {"hyperedges": null} makes .get return the null, and a
-    # bare `for h in` would raise TypeError out of this function (the try above
-    # wraps only the JSON load).
-    raw_hyper = data.get("hyperedges") or []
+    # Read whichever slot actually holds the list. A node_link_data-only writer
+    # emits hyperedges solely under `graph` with no top-level key (#2485, the
+    # shape build_from_json folds), so reading only the top level would find
+    # nothing to revalidate and then overwrite the nested slot with that empty
+    # result — destroying valid groups. The isinstance guards also absorb a
+    # legacy {"hyperedges": null}, which would otherwise raise TypeError out of
+    # this function (the try above wraps only the JSON load).
+    raw_hyper = data.get("hyperedges")
+    if not isinstance(raw_hyper, list):
+        nested_hyper = (data.get("graph") or {}).get("hyperedges")
+        raw_hyper = nested_hyper if isinstance(nested_hyper, list) else []
     # Filter None explicitly: unlike the raw --no-cluster path (where
     # dedupe_nodes has already stripped id-less nodes) this function keeps them,
     # so an unfiltered set would contain None and let a null member count
@@ -1103,6 +1110,7 @@ def _clone_repo(
 
 
 def _reenter_main() -> None:
+    """Re-dispatch through ``__main__.main`` after rewriting ``sys.argv``."""
     from graphify.__main__ import main
     main()
 

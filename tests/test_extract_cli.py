@@ -1312,6 +1312,38 @@ def test_prune_graph_json_sources_syncs_the_nested_hyperedge_slot(tmp_path):
     )
 
 
+def test_prune_graph_json_sources_revalidates_a_nested_only_slot(tmp_path):
+    """A node_link_data-only writer emits hyperedges solely under `graph`, with
+    no top-level key (#2485 — build_from_json folds nested onto top-level for
+    exactly that shape). Reading only the top-level slot would see nothing to
+    revalidate and then overwrite the nested slot with that empty result,
+    destroying a perfectly valid group."""
+    import json
+
+    from graphify.cli import _prune_graph_json_sources
+
+    graph_path = tmp_path / "graph.json"
+    graph_path.write_text(json.dumps({
+        "nodes": [{"id": n, "source_file": "live.py"} for n in ("a", "b", "c")]
+                 + [{"id": "gone", "source_file": "stale.py"}],
+        "links": [],
+        "graph": {"hyperedges": [
+            {"id": "keeper", "nodes": ["a", "b", "c"], "source_file": "live.py"},
+            {"id": "degraded", "nodes": ["gone", "a", "b"], "source_file": "live.py"},
+        ]},
+    }), encoding="utf-8")
+
+    _prune_graph_json_sources(graph_path, ["stale.py"])
+
+    data = _read_graph(graph_path)
+    nested = {h["id"]: h for h in data["graph"]["hyperedges"]}
+    assert set(nested) == {"keeper"}, (
+        f"the valid group must survive and only the degraded one go, got {sorted(nested)}"
+    )
+    assert nested["keeper"]["nodes"] == ["a", "b", "c"]
+    assert "hyperedges" not in data, "a nested-only file must not sprout a top-level slot"
+
+
 def test_prune_graph_json_sources_leaves_a_clean_graph_untouched(tmp_path):
     """Nothing to prune must mean no rewrite at all (the caller reports 0)."""
     import json
