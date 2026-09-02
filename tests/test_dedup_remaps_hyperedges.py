@@ -143,7 +143,31 @@ def test_malformed_hyperedges_do_not_raise(he):
     _remap_hyperedge_members([he], {"a": "b"})
 
 
+@pytest.mark.parametrize("members", [
+    [None, 7, False],
+    [None, None, None],
+    ["a", None, False],
+], ids=["mixed-junk", "all-null", "one-real-two-junk"])
+def test_unusable_members_do_not_make_up_the_minimum(members):
+    """The rewire appended every non-str, non-dict entry untouched and then
+    counted list length, so a direct caller kept a three-POSITION group whose
+    entries could not name a node at all — contradicting the cleanup this
+    function is supposed to guarantee on every exit path."""
+    hes = [{"id": "h", "nodes": list(members)}]
+    _remap_hyperedge_members(hes, {})
+    assert hes == [], f"none of {members!r} is a usable member id"
+
+
+def test_a_numeric_member_is_canonicalized_while_rewiring():
+    """A numeric id is usable and becomes its string form, matching the coercion
+    every other member path applies, so it can be remapped and deduped."""
+    hes = [{"id": "h", "nodes": [7, "b", "c"]}]
+    _remap_hyperedge_members(hes, {"7": "seven"})
+    assert hes[0]["nodes"] == ["seven", "b", "c"]
+
+
 def test_an_empty_remap_changes_nothing():
+    """With nothing merged, a canonical group passes through untouched."""
     hes = [{"id": "h", "nodes": ["a", "b", "c"]}]
     _remap_hyperedge_members(hes, {})
     assert hes[0]["nodes"] == ["a", "b", "c"]

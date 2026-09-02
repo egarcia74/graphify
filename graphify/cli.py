@@ -4149,8 +4149,8 @@ def dispatch_command(cmd: str) -> None:
         if len(_kept_sem_hes) != len(_sem_hes):
             print(
                 f"[graphify extract] dropped {len(_sem_hes) - len(_kept_sem_hes)} "
-                f"semantic hyperedge(s) that are not group relationships; their "
-                f"source files stay unstamped for the next run.",
+                f"semantic hyperedge(s) that are not group relationships, "
+                f"before manifest stamping.",
                 file=sys.stderr,
             )
         sem_result["hyperedges"] = _kept_sem_hes

@@ -12,7 +12,11 @@ from collections import defaultdict
 from pathlib import Path
 
 from graphify._minhash import MinHash, MinHashLSH
-from graphify.build import _has_minimum_hyperedge_members
+from graphify.build import (
+    _coerce_id,
+    _has_minimum_hyperedge_members,
+    _is_usable_member_ref,
+)
 from rapidfuzz.distance import DamerauLevenshtein, Jaro, JaroWinkler
 
 
@@ -495,19 +499,28 @@ def _remap_hyperedge_members(hyperedges: list[dict], remap: dict[str, str]) -> N
         seen: set = set()
         rewired: list = []
         for m in members:
-            if isinstance(m, str):
-                new_id = remap.get(m, m)
-                entry = new_id
-            elif isinstance(m, dict):
-                raw = m.get("id")
+            if isinstance(m, dict):
+                # Object members keep their other fields (role, weight, ...), so
+                # this branch cannot delegate to canonical_hyperedge, which
+                # flattens them to bare ids.
+                raw = _coerce_id(m.get("id"))
                 new_id = remap.get(raw, raw) if isinstance(raw, str) else raw
-                entry = dict(m, id=new_id) if new_id != raw else m
+                entry = dict(m, id=new_id) if new_id != m.get("id") else m
             else:
-                new_id, entry = None, m
-            if isinstance(new_id, str):
-                if new_id in seen:
-                    continue
-                seen.add(new_id)
+                # Coerce first, so a numeric id becomes the "7" form every other
+                # member path uses and can therefore be remapped and deduped.
+                new_id = _coerce_id(m)
+                if isinstance(new_id, str):
+                    new_id = remap.get(new_id, new_id)
+                entry = new_id
+            if not _is_usable_member_ref(new_id):
+                # Drop rather than append: these used to be appended untouched
+                # and then counted by list length, so [None, 7, False] survived
+                # as a three-POSITION group with no usable member in it.
+                continue
+            if new_id in seen:
+                continue
+            seen.add(new_id)
             rewired.append(entry)
         he["nodes"] = rewired
         if _has_minimum_hyperedge_members(he):
