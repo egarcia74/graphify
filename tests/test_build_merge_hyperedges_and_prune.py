@@ -149,8 +149,15 @@ _TWO_NODES = [
 
 
 def _fake_build_returning(hyperedges):
-    """Stand-in for build(): the seeded nodes (so the #479 shrink guard stays quiet)
-    plus whatever hyperedge metadata the test wants to smuggle past build()."""
+    """
+    Create a build replacement that returns seeded nodes and supplied hyperedge metadata.
+    
+    Parameters:
+    	hyperedges: Hyperedge metadata to attach to the returned graph, or None to omit it.
+    
+    Returns:
+    	A callable that produces a graph containing the seeded nodes and hyperedge metadata.
+    """
     def fake_build(*args, **kwargs):
         """Stand in for build(), returning the seeded nodes plus canned hyperedge metadata."""
         G = nx.Graph()

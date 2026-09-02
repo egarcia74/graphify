@@ -1147,7 +1147,15 @@ def test_no_cluster_gates_hyperedge_cardinality_in_the_raw_graph(monkeypatch, tm
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake-key")
 
     def _fake_extract(paths, **kwargs):
-        """Return three README-owned nodes and four hyperedges of varying validity."""
+        """
+        Provide a README-based extraction result containing three nodes and hyperedges with valid and invalid membership patterns.
+        
+        Parameters:
+            **kwargs: Optional extraction callbacks; ``on_chunk_done`` is called with an empty chunk result when provided.
+        
+        Returns:
+            dict: Extraction data containing three document nodes, four hyperedges, and token counts.
+        """
         on_chunk = kwargs.get("on_chunk_done")
         if on_chunk:  # else the zero-succeeded gate exits 1
             on_chunk(0, 1, {"nodes": [], "edges": [], "hyperedges": []})

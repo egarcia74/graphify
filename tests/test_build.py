@@ -1126,9 +1126,12 @@ def test_build_merge_replaces_changed_file_stale_edges(tmp_path):
 
 
 def _write_two_tier_graph(graph_path):
-    """A graph where docs/readme.md carries BOTH tiers (#2333 COEXIST): an
-    AST layer (document/heading nodes + a contains edge, _origin=ast) and a
-    semantic layer (an unstamped concept node, source_location=None)."""
+    """
+    Write a graph fixture containing AST and semantic layers for the same document.
+    
+    Parameters:
+        graph_path (Path): Destination path for the serialized graph fixture.
+    """
     data = {
         "directed": False,
         "nodes": [

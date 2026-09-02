@@ -103,9 +103,15 @@ def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
 
 
 def _is_ast_tier(item: dict) -> bool:
-    """AST vs semantic tier. _origin wins when present; unstamped legacy items
-    (pre-0.9.16) fall back to shape: deterministic extractors emit
-    source_location 'L<line>', the semantic spec emits null (#2334)."""
+    """
+    Determine whether an extraction item belongs to the AST tier.
+    
+    Parameters:
+        item (dict): Extraction item whose origin or legacy source location is inspected.
+    
+    Returns:
+        bool: `true` if the item belongs to the AST tier, `false` otherwise.
+    """
     o = item.get("_origin")
     if o is not None:
         return o == "ast"
@@ -857,12 +863,16 @@ def _doc_twin_remap(nodes: list) -> dict[str, str]:
 
 
 def build_from_json(extraction: dict, *, directed: bool = False, root: str | Path | None = None) -> nx.Graph:
-    """Build a NetworkX graph from an extraction dict.
-
-    directed=True produces a DiGraph that preserves edge direction (source→target).
-    directed=False (default) produces an undirected Graph for backward compatibility.
-    root: if given, absolute source_file paths from semantic subagents are made
-        relative to root so all nodes share a consistent path key (#932).
+    """
+    Build a NetworkX graph from normalized extraction data.
+    
+    Parameters:
+    	extraction (dict): Extraction data containing nodes, edges or legacy links, and optional hyperedges. The input may be normalized in place.
+    	directed (bool): Whether to preserve edge direction in the graph. Defaults to False.
+    	root (str | Path | None): Optional repository root used to relativize source-file paths.
+    
+    Returns:
+    	nx.Graph: A directed or undirected graph containing valid nodes, edges, and hyperedges. Hyperedges with fewer than three surviving members are omitted.
     """
     _root = str(Path(root).resolve()) if root else None
     # NetworkX <= 3.1 serialised edges as "links"; remap to "edges" for compatibility.
@@ -1413,20 +1423,18 @@ def build(
     dedup_llm_backend: str | None = None,
     root: str | Path | None = None,
 ) -> nx.Graph:
-    """Merge multiple extraction results into one graph.
-
-    directed=True produces a DiGraph that preserves edge direction (source→target).
-    directed=False (default) produces an undirected Graph for backward compatibility.
-    dedup=True (default) runs entity deduplication before building the graph.
-    dedup_llm_backend: if set (e.g. "gemini", "claude", or "kimi"), uses LLM to resolve
-        ambiguous pairs in the 75–92 Jaro-Winkler score zone.
-    root: if given, absolute source_file paths are made relative to root (#932).
-
-    With dedup disabled, extractions are merged in order and the last node's
-    attributes win (NetworkX add_node overwrites). With dedup enabled, nodes
-    sharing an ID use a deterministic survivor and retain missing attributes
-    from duplicate records of the same source entity. Genuine cross-file ID
-    collisions remain isolated and are reported.
+    """
+    Merge multiple extraction results into a single graph.
+    
+    Parameters:
+    	extractions (list[dict]): Extraction results containing nodes, edges, hyperedges, and token counts.
+    	directed (bool): Whether to preserve edge direction in the resulting graph.
+    	dedup (bool): Whether to deduplicate entities before building the graph.
+    	dedup_llm_backend (str | None): Optional LLM backend for resolving ambiguous entity pairs.
+    	root (str | Path | None): Root directory used to relativize source file paths.
+    
+    Returns:
+    	nx.Graph: The assembled NetworkX graph.
     """
     from graphify.dedup import deduplicate_entities
     combined: dict = {"nodes": [], "edges": [], "hyperedges": [], "input_tokens": 0, "output_tokens": 0}
@@ -1735,25 +1743,33 @@ def build_merge(
     dedup_llm_backend: str | None = None,
     root: str | Path | None = None,
 ) -> nx.Graph:
-    """Load existing graph.json and return it merged with ``new_chunks``.
-
-    Does NOT write to disk — the caller persists the result, e.g. via
-    ``export.to_json(G, communities, graph_path, force=True)`` after
-    clustering. ``graph_path`` is read-only here.
-
-    Re-extracted files REPLACE their prior contribution per tier (#2333/#2336):
-    a source_file present in new_chunks has its existing nodes/edges dropped
-    for each tier (AST vs semantic, per :func:`_is_ast_tier`) the new chunks
-    actually contain, so a changed file's stale nodes/edges don't accumulate
-    while a one-tier re-extract keeps the other tier's layer intact. Files
-    absent from new_chunks are preserved unchanged; deleted files are removed
-    via prune_sources (tier-blind). Safe to call repeatedly.
-    root: if given, absolute source_file paths in new_chunks are made relative (#932).
-    directed: if None (default), honor the on-disk graph's own ``directed`` flag
-    when one exists, so an incremental merge can't silently flip a directed
-    graph undirected (#2342). Falls back to False when there is no existing
-    graph to inherit from. An explicit True/False always overrides the on-disk
-    flag.
+    """
+    Merge newly extracted chunks into an existing graph without writing it to disk.
+    
+    Re-extracted sources replace only the tiers present in the new chunks. Existing
+    sources are preserved, while sources listed in ``prune_sources`` are removed.
+    Hyperedges are carried forward when applicable and discarded if fewer than three
+    valid members remain.
+    
+    Parameters:
+        new_chunks (list[dict]): Extraction chunks to merge.
+        graph_path (str | Path | None): Existing graph file to load. Uses the
+            default graph path when omitted.
+        prune_sources (list[str] | None): Source files to remove from the graph.
+        directed (bool | None): Whether to build a directed graph. When omitted,
+            preserves the existing graph's directedness.
+        dedup (bool): Whether to deduplicate entities during the merge.
+        dedup_llm_backend (str | None): Backend used for optional LLM-assisted
+            entity deduplication.
+        root (str | Path | None): Root used to relativize source-file paths.
+    
+    Returns:
+        nx.Graph: The merged graph.
+    
+    Raises:
+        RuntimeError: If the existing graph cannot be read.
+        ValueError: If deduplication is disabled and the merge would silently drop
+            nodes that were neither re-extracted nor explicitly pruned.
     """
     # Iterated more than once below (source sets, the hyperedge carry, the
     # build itself), so a one-shot iterator must be materialised first.

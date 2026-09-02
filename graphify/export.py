@@ -178,14 +178,24 @@ _CONFIDENCE_SCORE_DEFAULTS = {"EXTRACTED": 1.0, "INFERRED": 0.55, "AMBIGUOUS": 0
 
 
 def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
-    """Store hyperedges in the graph's metadata dict."""
+    """Store valid hyperedges in the graph metadata, merging incoming entries by nonempty ID.
+    
+    Invalid entries and hyperedges with nodes absent from the graph are discarded. Existing hyperedges without IDs are preserved, while incoming entries with duplicate or empty IDs are not added.
+    
+    Parameters:
+        G (nx.Graph): Graph whose metadata receives the hyperedges.
+        hyperedges (list): Hyperedge candidates to validate and merge.
+    """
 
     def valid_candidate(h: object) -> dict | None:
-        """Canonicalize *h* against G's nodes, or None when it is not a group.
-
-        merge-graphs hands persisted metadata straight to this boundary with no
-        build_from_json in between, so the shared gate does the alias fold,
-        member coercion and dedupe before filtering to nodes G actually has.
+        """
+        Canonicalize a hyperedge against the graph's nodes.
+        
+        Parameters:
+            h (object): Candidate hyperedge metadata.
+        
+        Returns:
+            dict | None: The canonical hyperedge when valid, or `None` when the candidate is invalid.
         """
         return canonical_hyperedge(h, G)
 
@@ -282,6 +292,19 @@ def existing_graph_node_count(path: "str | Path"):
 
 def to_json(G: nx.Graph, communities: dict[int, list[str]], output_path: str, *, force: bool = False, built_at_commit: str | None = None, community_labels: dict[int, str] | None = None) -> bool:
     # Safety check: refuse to silently shrink an existing graph (#479)
+    """
+    Export the graph as deterministic node-link JSON.
+    
+    Parameters:
+    	communities (dict[int, list[str]]): Mapping of community identifiers to their node labels.
+    	output_path (str): Destination path for the JSON file.
+    	force (bool): Whether to override safeguards against replacing unreadable or smaller existing graphs.
+    	built_at_commit (str | None): Optional Git commit identifier to record as build provenance.
+    	community_labels (dict[int, str] | None): Optional display names for communities.
+    
+    Returns:
+    	bool: `True` if the graph is written, `False` if an overwrite is refused by the safety checks.
+    """
     existing_path = Path(output_path)
     if not force and existing_path.exists():
         from graphify.security import check_graph_file_size_cap

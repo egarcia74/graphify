@@ -581,30 +581,15 @@ def _zero_node_stamped_semantic_sources(
 
 
 def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int:
-    """Drop nodes/edges/hyperedges owned by ``stale_sources`` from graph.json
-    in place. Returns the number of nodes removed.
-
-    Used by the ``--no-cluster`` incremental early-exit: that path never runs
-    ``build_merge`` (it would raw-dump only the new chunks), so an
-    exclusion-only change must prune the existing raw graph directly or the
-    newly-excluded file's nodes survive forever (#1909).
-    ``stale_sources`` comes from :func:`_stale_graph_sources`, i.e. the
-    graph's own ``source_file`` spellings, so exact string matching is enough.
-
-    Hyperedges get the same revalidation the clustered path gets from
-    build_merge: an entry owned by a surviving file can still name a node this
-    prune just removed, so members are filtered to the survivors and the group
-    is dropped when that leaves it under ``MIN_HYPEREDGE_MEMBERS``. Two
-    wrinkles worth knowing:
-
-    - BOTH hyperedge slots are rewritten. ``to_json`` persists them top-level
-      and under ``graph`` (#2484), and :func:`_zero_node_stamped_semantic_sources`
-      unions the two when judging whether a doc's manifest stamp is honest
-      (#2927) — so a stale nested copy of a dropped group would keep that doc
-      looking covered and it would never be re-dispatched.
-    - The return value counts NODES only, so a hyperedge-only rewrite returns 0
-      and the caller prints nothing; the stderr line below is what makes such a
-      rewrite attributable.
+    """
+    Remove graph nodes, edges, and hyperedges associated with stale source files.
+    
+    Parameters:
+        graph_path (Path): Path to the graph JSON file.
+        stale_sources (list[str]): Source-file identifiers whose graph data should be removed.
+    
+    Returns:
+        int: Number of removed nodes.
     """
     try:
         data = json.loads(graph_path.read_text(encoding="utf-8"))
@@ -1110,17 +1095,20 @@ def _clone_repo(
 
 
 def _reenter_main() -> None:
-    """Re-dispatch through ``__main__.main`` after rewriting ``sys.argv``."""
+    """Re-enter the main command dispatcher using the current command-line arguments."""
     from graphify.__main__ import main
     main()
 
 
 def dispatch_command(cmd: str) -> None:
-    """Run the subcommand named *cmd*, reading its flags from ``sys.argv``.
-
-    The single entry point every ``graphify <cmd>`` invocation goes through.
-    Each branch parses its own arguments and exits via ``sys.exit`` rather than
-    returning a status, so callers get the process exit code directly.
+    """
+    Dispatch a Graphify CLI command using arguments from ``sys.argv``.
+    
+    Parameters:
+    	cmd (str): Command name to dispatch. Path-like values are treated as extraction targets.
+    
+    The selected command parses its own options, performs its operation, and reports CLI
+    errors through process termination.
     """
     if cmd == "provider":
         from graphify.llm import _custom_providers_path, BACKENDS

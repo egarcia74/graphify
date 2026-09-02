@@ -18,6 +18,16 @@ from graphify.dedup import _remap_hyperedge_members, deduplicate_entities
 
 
 def _node(nid, label):
+    """
+    Create a concept node with the specified identifier and label.
+    
+    Parameters:
+    	nid: The node identifier.
+    	label: The node label.
+    
+    Returns:
+    	dict: A node record containing the identifier, label, file type, and source file.
+    """
     return {"id": nid, "label": label, "file_type": "concept",
             "source_file": "notes/a.md"}
 
