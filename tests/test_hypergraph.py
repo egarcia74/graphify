@@ -7,7 +7,7 @@ from pathlib import Path
 import networkx as nx
 import pytest
 
-from graphify.build import build_from_json
+from graphify.build import MIN_HYPEREDGE_MEMBERS, build_from_json, canonical_hyperedge
 from graphify.export import attach_hyperedges, to_json
 from graphify.report import generate
 
@@ -211,6 +211,93 @@ def test_attach_hyperedges_canonicalizes_members_before_validating():
     assert "members" not in attached["alias_group"]
     assert attached["object_group"]["nodes"] == ["a", "b", "c"]
     assert alias_shaped == {"id": "alias_group", "members": ["a", "b", "c"]}
+
+
+# ---------------------------------------------------------------------------
+# 2b. canonical_hyperedge — the one gate every persistence boundary shares
+# ---------------------------------------------------------------------------
+
+def test_canonical_hyperedge_folds_alias_keys():
+    """A `members`/`node_ids` group is valid (#1561); the gate must read it."""
+    he = {"id": "h", "members": ["a", "b", "c"]}
+    out = canonical_hyperedge(he)
+    assert out["nodes"] == ["a", "b", "c"]
+    assert "members" not in out
+    assert he == {"id": "h", "members": ["a", "b", "c"]}, "caller's dict must be untouched"
+
+
+def test_canonical_hyperedge_counts_distinct_members():
+    """Positions are not members: a repeated id must not inflate the count."""
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "a", "b", "c"]})["nodes"] == ["a", "b", "c"]
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "a", "b"]}) is None
+
+
+def test_canonical_hyperedge_coerces_object_members():
+    """Members are tolerated as bare ids or as objects carrying one."""
+    out = canonical_hyperedge({"id": "h", "nodes": [{"id": "a"}, "b", {"id": "c"}]})
+    assert out["nodes"] == ["a", "b", "c"]
+
+
+@pytest.mark.parametrize("container", [
+    {"a", "b", "c"},
+    nx.Graph([("a", "b"), ("b", "c")]),
+])
+def test_canonical_hyperedge_filters_members_to_the_node_set(container):
+    """A member with no backing node is dropped; the group dies below the minimum.
+
+    Both a plain set and an nx.Graph are valid containers — `m in G` is node
+    membership."""
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", "c", "ghost"]}, container)["nodes"] == [
+        "a", "b", "c",
+    ]
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", "ghost"]}, container) is None
+
+
+def test_canonical_hyperedge_without_a_node_set_skips_membership():
+    """The cache has no node set: `node_ids=None` means "shape only, no membership"."""
+    out = canonical_hyperedge({"id": "h", "nodes": ["ghost1", "ghost2", "ghost3"]}, None)
+    assert out["nodes"] == ["ghost1", "ghost2", "ghost3"]
+
+
+@pytest.mark.parametrize("empty", [set(), nx.Graph()])
+def test_canonical_hyperedge_treats_an_empty_node_set_as_empty_not_absent(empty):
+    """`set()` and `nx.Graph()` are both FALSY, so a truthiness guard would skip
+    membership filtering entirely and keep a group whose every member dangles.
+    The guard must be `is not None`."""
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", "c"]}, empty) is None
+
+
+@pytest.mark.parametrize("nodes_value", [
+    None,                            # explicit null
+    "a,b,c",                         # a string: iterating it yields characters
+    {"a": 1, "b": 2, "c": 3},        # a dict: iterating it yields keys
+])
+@pytest.mark.parametrize("node_ids", [None, {"a", "b", "c"}])
+def test_canonical_hyperedge_rejects_a_non_list_nodes_value(nodes_value, node_ids):
+    """Normalization only assigns `nodes` when `nodes` or an alias is already a
+    list, so a malformed value survives to the membership filter. Without an
+    explicit list guard a string or dict is *fabricated* into a well-formed
+    3-member group (its characters / keys pass membership), and an absent or null
+    value raises. Every shape must be rejected outright."""
+    assert canonical_hyperedge({"id": "h", "nodes": nodes_value}, node_ids) is None
+
+
+@pytest.mark.parametrize("node_ids", [None, {"a", "b", "c"}])
+def test_canonical_hyperedge_rejects_a_member_less_entry(node_ids):
+    """No `nodes` key and no alias at all — same guard as the shapes above."""
+    assert canonical_hyperedge({"id": "h", "label": "x"}, node_ids) is None
+
+
+@pytest.mark.parametrize("he", ["not-a-dict", None, 7, ["a", "b", "c"]])
+def test_canonical_hyperedge_rejects_a_non_dict(he):
+    assert canonical_hyperedge(he) is None
+
+
+def test_canonical_hyperedge_keeps_a_group_exactly_at_the_minimum():
+    """The threshold is inclusive — MIN_HYPEREDGE_MEMBERS distinct members pass."""
+    members = [f"n{i}" for i in range(MIN_HYPEREDGE_MEMBERS)]
+    assert canonical_hyperedge({"id": "h", "nodes": members})["nodes"] == members
+    assert canonical_hyperedge({"id": "h", "nodes": members[:-1]}) is None
 
 
 # ---------------------------------------------------------------------------

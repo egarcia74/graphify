@@ -15,7 +15,7 @@ import networkx as nx
 from networkx.readwrite import json_graph
 from graphify.security import sanitize_label
 from graphify.analyze import _node_community_map
-from graphify.build import _has_minimum_hyperedge_members, _normalize_hyperedge_members, edge_data
+from graphify.build import canonical_hyperedge, edge_data
 from graphify.paths import stem_filename_budget
 
 from graphify.exporters.graphdb import push_to_falkordb, push_to_neo4j  # noqa: E402,F401
@@ -181,30 +181,13 @@ def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
     """Store hyperedges in the graph's metadata dict."""
 
     def valid_candidate(h: object) -> dict | None:
-        if not isinstance(h, dict):
-            return None
-        # Canonicalize a shallow copy first (#1561): merge-graphs hands persisted
-        # metadata straight to this boundary with no build_from_json in between,
-        # so an alias-keyed (`members`/`node_ids`) group has no `nodes` list yet
-        # and object-shaped members are unhashable. Either would be silently
-        # deleted below. The copy keeps the caller's dict untouched.
-        h = dict(h)
-        _normalize_hyperedge_members(h)
-        members = h.get("nodes")
-        if not isinstance(members, list):
-            return None
-        surviving = []
-        seen_members = set()
-        for member in members:
-            try:
-                hash(member)
-            except TypeError:
-                continue
-            if member in G and member not in seen_members:
-                surviving.append(member)
-                seen_members.add(member)
-        candidate = h if surviving == members else {**h, "nodes": surviving}
-        return candidate if _has_minimum_hyperedge_members(candidate) else None
+        """Canonicalize *h* against G's nodes, or None when it is not a group.
+
+        merge-graphs hands persisted metadata straight to this boundary with no
+        build_from_json in between, so the shared gate does the alias fold,
+        member coercion and dedupe before filtering to nodes G actually has.
+        """
+        return canonical_hyperedge(h, G)
 
     existing = [
         candidate

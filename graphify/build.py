@@ -54,6 +54,54 @@ def _has_minimum_hyperedge_members(he: object) -> bool:
     )
 
 
+def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
+    """Return a canonical copy of hyperedge *he*, or None when it is not a group.
+
+    The one gate every persistence boundary shares. Callers hand this raw
+    producer output or a reloaded graph.json, so the shape has to be settled
+    before the cardinality rule can mean anything:
+
+    - a ``members``/``node_ids`` alias (#1561) carries no ``nodes`` key at all,
+      and would be read as "no members" rather than folded;
+    - a member listed twice, or two members an id remap collapsed onto one,
+      inflates a pair into an apparent group;
+    - a member object (``{"id": "a"}``) is not comparable to a node id (#2486).
+
+    ``_normalize_hyperedge_members`` settles all three on a shallow copy, so the
+    caller's dict is untouched — the same contract ``cache._normalized`` keeps
+    for ``source_file``, and it matters because downstream steps (``_partial``
+    marker stripping, manifest stamping) still read the original shape.
+
+    ``node_ids`` is any container of surviving node ids — a set, or an
+    ``nx.Graph`` (``m in G`` is node membership). When given, members absent
+    from it are dropped, so a group cannot keep a dangling member or survive on
+    members its graph no longer has. Pass None to check shape and cardinality
+    only, which is what the semantic cache does: it has no node set.
+
+    Returns the canonical copy iff it still has ``MIN_HYPEREDGE_MEMBERS``
+    distinct members, else None. A pairwise relationship belongs in the ordinary
+    edge set.
+    """
+    if not isinstance(he, dict):
+        return None
+    he = dict(he)
+    _normalize_hyperedge_members(he)
+    # Normalization only ASSIGNS `nodes` when `nodes` or an alias was already a
+    # list, so a malformed value (absent, None, a bare string, a dict) is still
+    # sitting there. It must be rejected before the membership filter below:
+    # iterating a string yields characters and a dict yields keys, which would
+    # fabricate a well-formed group out of junk, and an absent/None value would
+    # raise. Same guard the per-site gates this helper replaced all carried.
+    if not isinstance(he.get("nodes"), list):
+        return None
+    if node_ids is not None:
+        # `is not None`, never a truthiness test: set() and nx.Graph() are both
+        # falsy, and skipping the filter for an empty graph would keep a group
+        # whose every member dangles.
+        he["nodes"] = [m for m in he["nodes"] if m in node_ids]
+    return he if _has_minimum_hyperedge_members(he) else None
+
+
 def _is_ast_tier(item: dict) -> bool:
     """AST vs semantic tier. _origin wins when present; unstamped legacy items
     (pre-0.9.16) fall back to shape: deterministic extractors emit
@@ -2038,15 +2086,11 @@ def build_merge(
     # hyperedges but the graph carries none" warning on the key being ABSENT.
     # Manufacturing an empty list here would silence that diagnostic.
     if "hyperedges" in G.graph:
-        final_hyperedges = []
-        for he in G.graph.get("hyperedges", []):
-            if not isinstance(he, dict) or not isinstance(he.get("nodes"), list):
-                continue
-            surviving = list(dict.fromkeys(member for member in he["nodes"] if member in G))
-            candidate = he if surviving == he["nodes"] else {**he, "nodes": surviving}
-            if _has_minimum_hyperedge_members(candidate):
-                final_hyperedges.append(candidate)
-        G.graph["hyperedges"] = final_hyperedges
+        G.graph["hyperedges"] = [
+            candidate
+            for he in G.graph.get("hyperedges", [])
+            if (candidate := canonical_hyperedge(he, G)) is not None
+        ]
 
     # Safety check: refuse to SILENTLY drop nodes (#479, reworked in #2497).
     # The old count comparison ran against the post-replace `existing_nodes`,
