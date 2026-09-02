@@ -15,7 +15,7 @@ import networkx as nx
 from networkx.readwrite import json_graph
 from graphify.security import sanitize_label
 from graphify.analyze import _node_community_map
-from graphify.build import canonical_hyperedge, edge_data
+from graphify.build import MIN_HYPEREDGE_MEMBERS, canonical_hyperedge, edge_data
 from graphify.paths import stem_filename_budget
 
 from graphify.exporters.graphdb import push_to_falkordb, push_to_neo4j  # noqa: E402,F401
@@ -412,9 +412,37 @@ def to_json(G: nx.Graph, communities: dict[int, list[str]], output_path: str, *,
                 f"extraction if this is unexpected.",
                 file=sys.stderr,
             )
-    hyperedges = sorted(getattr(G, "graph", {}).get("hyperedges", []), key=_json_sort_key)
+    # Gate at the final persistence boundary too. Every internal producer
+    # (build_from_json, build_merge, attach_hyperedges) already canonicalizes,
+    # so in normal flows this drops nothing — but to_json is public API, and a
+    # library caller populating G.graph["hyperedges"] itself would otherwise
+    # write a pair, a duplicate-inflated group or a dangling member into both
+    # JSON slots. Filters a copy: an export must not mutate the caller's graph.
+    # The #2485 absent-vs-empty warning above is unaffected — it keys on the
+    # metadata key being missing from G.graph, which this does not touch.
+    _raw_hyperedges = getattr(G, "graph", {}).get("hyperedges", [])
+    _valid_hyperedges = [
+        candidate
+        for h in _raw_hyperedges
+        if (candidate := canonical_hyperedge(h, G)) is not None
+    ]
+    if len(_valid_hyperedges) != len(_raw_hyperedges):
+        print(
+            f"[graphify] WARNING: dropping "
+            f"{len(_raw_hyperedges) - len(_valid_hyperedges)} hyperedge(s) with "
+            f"fewer than {MIN_HYPEREDGE_MEMBERS} members backed by graph nodes "
+            f"while writing {output_path}.",
+            file=sys.stderr,
+        )
+    hyperedges = sorted(_valid_hyperedges, key=_json_sort_key)
     if isinstance(data.get("graph"), dict) and "hyperedges" in data["graph"]:
-        data["graph"]["hyperedges"] = hyperedges
+        # Rebind rather than mutate in place: node_link_data hands back the
+        # SAME graph-attrs dict the caller's G owns (the by-reference sharing
+        # #2484 was diagnosed from), so assigning into it would edit their
+        # graph — and now that the list is filtered, that edit would silently
+        # drop their hyperedges. Replacing the key preserves its position, so
+        # the field-order/byte-stability contract is untouched.
+        data["graph"] = {**data["graph"], "hyperedges": hyperedges}
     data["hyperedges"] = hyperedges
     # Fallback provenance comes from the repo the graph is being written INTO
     # (output_path lives in <target>/graphify-out/), never the shell's cwd —

@@ -307,6 +307,31 @@ def test_canonical_hyperedge_keeps_a_group_exactly_at_the_minimum():
     assert canonical_hyperedge({"id": "h", "nodes": members[:-1]}) is None
 
 
+def test_to_json_gates_hyperedges_written_by_a_direct_caller(tmp_path):
+    """to_json is public API and the final persistence boundary. A library caller
+    that populates G.graph["hyperedges"] itself bypasses build_from_json,
+    build_merge and attach_hyperedges, so the minimum-cardinality invariant has
+    to hold here too — in both JSON slots."""
+    G = nx.Graph()
+    G.add_nodes_from(["a", "b", "c"])
+    G.graph["hyperedges"] = [
+        {"id": "pair", "nodes": ["a", "b"]},
+        {"id": "dupes", "nodes": ["a", "a", "b"]},
+        {"id": "dangling", "nodes": ["a", "b", "ghost"]},
+        {"id": "alias", "members": ["a", "b", "c"]},
+        {"id": "good", "nodes": ["a", "b", "c"]},
+    ]
+    out = tmp_path / "graph.json"
+    assert to_json(G, {0: ["a", "b", "c"]}, str(out))
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert {h["id"] for h in data["hyperedges"]} == {"alias", "good"}
+    assert {h["id"] for h in data["graph"]["hyperedges"]} == {"alias", "good"}
+    assert next(h for h in data["hyperedges"] if h["id"] == "alias")["nodes"] == ["a", "b", "c"]
+    # The caller's own graph must not be mutated by an export.
+    assert len(G.graph["hyperedges"]) == 5
+
+
 # ---------------------------------------------------------------------------
 # 3. to_json includes hyperedges key
 # ---------------------------------------------------------------------------
@@ -392,6 +417,7 @@ def test_report_includes_hyperedge_node_list():
 # ---------------------------------------------------------------------------
 
 def test_report_skips_hyperedges_section_when_empty():
+    """An empty hyperedge set renders no hyperedges section in the report."""
     extraction = {**SAMPLE_EXTRACTION, "hyperedges": []}
     G = build_from_json(extraction)
     report = _make_report(G)
@@ -429,6 +455,7 @@ def _alias_extraction():
 
 
 def test_build_normalizes_member_aliases_to_nodes():
+    """Both `members` and `node_ids` aliases fold onto the canonical `nodes` key."""
     G = build_from_json(_alias_extraction())
     hes = {he["id"]: he for he in G.graph["hyperedges"]}
     for hid in ("he_nodes", "he_members", "he_node_ids"):
