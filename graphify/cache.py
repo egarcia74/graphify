@@ -12,7 +12,7 @@ import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from graphify.build import _has_minimum_hyperedge_members
+from graphify.build import _has_minimum_hyperedge_members, _normalize_hyperedge_members
 
 # Output directory name — override with GRAPHIFY_OUT env var for worktrees or
 # shared-output setups. Accepts a relative name ("graphify-out-feature") or an
@@ -1378,6 +1378,29 @@ def _semantic_source_matcher(
     return source_identity, normalize_value
 
 
+def _canonical_hyperedge(h: object) -> "dict | None":
+    """Return a canonical copy of hyperedge *h*, or None when it is not a group.
+
+    The cardinality gate reads the canonical ``nodes`` list, but callers hand this
+    module raw producer output: a ``members``/``node_ids`` alias (#1561) has no
+    ``nodes`` key at all, and a member listed twice inflates the count. Both used
+    to be healed by build_from_json's normalization AFTER the cache was read; now
+    that the cache filters on cardinality itself it must canonicalize first, or a
+    valid three-member group is silently lost and a pair with a duplicated member
+    is persisted as a group.
+
+    Works on a shallow copy: ``_normalize_hyperedge_members`` replaces ``nodes``
+    with a new list and pops the alias keys, so the caller's dict is untouched —
+    the same contract ``_normalized`` keeps for ``source_file``. Downstream steps
+    (e.g. ``_partial`` marker stripping) may still read the original shape.
+    """
+    if not isinstance(h, dict):
+        return None
+    h = dict(h)
+    _normalize_hyperedge_members(h)
+    return h if _has_minimum_hyperedge_members(h) else None
+
+
 def save_semantic_cache(
     nodes: list[dict],
     edges: list[dict],
@@ -1474,7 +1497,8 @@ def save_semantic_cache(
         if src:
             by_file[src]["edges"].append(e)
     for h in (hyperedges or []):
-        if not _has_minimum_hyperedge_members(h):
+        h = _canonical_hyperedge(h)
+        if h is None:
             continue
         h = _normalized(h)
         src = h.get("source_file", "")
@@ -1619,10 +1643,12 @@ def save_semantic_cache(
             )
             if is_partial:
                 result = {**result, "partial": True}
+            # Canonicalize BEFORE filtering: the union above may carry a legacy
+            # alias-keyed entry written before the cache normalized members.
             result["hyperedges"] = [
-                h
+                c
                 for h in result.get("hyperedges", [])
-                if _has_minimum_hyperedge_members(h)
+                if (c := _canonical_hyperedge(h)) is not None
             ]
             # A semantic extraction with zero nodes and zero hyperedges is not a valid
             # standalone extraction (#2927): edge-only or empty results must not be

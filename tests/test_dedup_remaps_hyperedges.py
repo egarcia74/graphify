@@ -22,9 +22,10 @@ def _node(nid, label):
             "source_file": "notes/a.md"}
 
 
-def _extraction(members):
+def _extraction(members, key="nodes"):
     """Two nodes that normalise to the same label, so dedup merges them; the
-    hyperedge names the id that loses."""
+    hyperedge names the id that loses. `key` lets a test spell the member list
+    with a legacy alias (`members` / `node_ids`) instead of canonical `nodes`."""
     return {
         "nodes": [
             _node("alpha_a", "Alpha Concept"),
@@ -34,7 +35,7 @@ def _extraction(members):
         ],
         "edges": [],
         "hyperedges": [{"id": "the_group", "label": "The Group",
-                        "nodes": members, "relation": "participate_in",
+                        key: members, "relation": "participate_in",
                         "confidence": "INFERRED", "confidence_score": 0.75,
                         "source_file": "notes/a.md"}],
     }
@@ -82,6 +83,15 @@ def test_object_shaped_members_are_remapped_too():
 
 def test_an_untouched_hyperedge_is_unchanged():
     G = build([_extraction(["alpha_a", "beta_node", "gamma_node"])])
+    assert _members(G) == ["alpha_a", "beta_node", "gamma_node"]
+
+
+def test_an_alias_keyed_hyperedge_is_remapped_not_deleted():
+    """A `members`-keyed group reaches dedup BEFORE build_from_json canonicalizes
+    it (#1561 fold runs later). It must be normalized first and then rewired like
+    any other hyperedge — not deleted for lacking a `nodes` list."""
+    G = build([_extraction(
+        ["alpha_concept_long_variant_id", "beta_node", "gamma_node"], key="members")])
     assert _members(G) == ["alpha_a", "beta_node", "gamma_node"]
 
 
@@ -136,6 +146,15 @@ def test_an_empty_remap_changes_nothing():
     hes = [{"id": "h", "nodes": ["a", "b", "c"]}]
     _remap_hyperedge_members(hes, {})
     assert hes[0]["nodes"] == ["a", "b", "c"]
+
+
+def test_an_entry_without_a_nodes_list_is_passed_through_not_deleted():
+    """The remap can only rewire a canonical `nodes` list. An entry it cannot
+    interpret (alias-keyed here) must survive untouched for build_from_json to
+    heal — the kept-list rewrite must never turn "skip" into "delete"."""
+    hes = [{"id": "h", "members": ["a", "b", "c"]}]
+    _remap_hyperedge_members(hes, {"a": "z"})
+    assert hes == [{"id": "h", "members": ["a", "b", "c"]}]
 
 
 def test_chained_collapse_lands_on_the_final_survivor():

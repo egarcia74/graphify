@@ -1365,9 +1365,10 @@ def test_save_semantic_cache_drops_hyperedges_touching_skipped_nodes(tmp_path):
 
 
 def test_save_semantic_cache_unscoped_drops_under_cardinality_hyperedges(tmp_path):
-    """#1916 guard-rail: unscoped callers (allowed_source_files=None) must stay
-    byte-identical — no pruning happens even when an edge or hyperedge
-    references a node grouped under a ghost file."""
+    """#1916 guard-rail: unscoped callers (allowed_source_files=None) get no
+    dangling-reference pruning — the edge to a node grouped under a ghost file is
+    cached byte-identical. The hyperedge is dropped for a different reason: two
+    members is under the minimum cardinality, regardless of scoping."""
     from graphify.cache import save_semantic_cache
 
     doc = tmp_path / "doc.md"
@@ -1407,6 +1408,69 @@ def test_save_semantic_cache_drops_two_member_hyperedge(tmp_path):
     cached = load_cached(doc, root=tmp_path, kind="semantic")
     assert cached is not None
     assert cached["hyperedges"] == []
+
+
+def test_save_semantic_cache_normalizes_alias_members_before_cardinality_check(tmp_path):
+    """A `members`-keyed group (#1561 alias) with three members is a valid
+    hyperedge. The cardinality gate must read it through the same canonicalization
+    build applies, not drop it for lacking a `nodes` list — and the caller's dict
+    must be left untouched (the cache writer copies, like _normalized does)."""
+    from graphify.cache import load_cached, save_semantic_cache
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    nodes = [{"id": nid, "source_file": "doc.md"} for nid in ("a", "b", "c")]
+    he = {"id": "grp", "members": ["a", "b", "c"], "source_file": "doc.md"}
+
+    assert save_semantic_cache(nodes, [], [he], root=tmp_path) == 1
+    cached = load_cached(doc, root=tmp_path, kind="semantic")
+    assert [h["id"] for h in cached["hyperedges"]] == ["grp"]
+    assert cached["hyperedges"][0]["nodes"] == ["a", "b", "c"]
+    assert "members" not in cached["hyperedges"][0]
+    assert he == {"id": "grp", "members": ["a", "b", "c"], "source_file": "doc.md"}
+
+
+def test_save_semantic_cache_counts_distinct_members(tmp_path):
+    """Three list positions with two distinct ids is a pair, not a group."""
+    from graphify.cache import load_cached, save_semantic_cache
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    nodes = [{"id": nid, "source_file": "doc.md"} for nid in ("a", "b", "c")]
+    hyperedges = [
+        {"id": "dupe_pair", "nodes": ["a", "a", "b"], "source_file": "doc.md"},
+        {"id": "dupe_trio", "nodes": ["a", "a", "b", "c"], "source_file": "doc.md"},
+    ]
+
+    assert save_semantic_cache(nodes, [], hyperedges, root=tmp_path) == 1
+    cached = load_cached(doc, root=tmp_path, kind="semantic")
+    assert {h["id"]: h["nodes"] for h in cached["hyperedges"]} == {"dupe_trio": ["a", "b", "c"]}
+
+
+def test_save_semantic_cache_merge_existing_heals_legacy_alias_entry(tmp_path):
+    """A pre-existing cache entry may hold an alias-keyed hyperedge written before
+    the cache canonicalized members. The merge_existing union must fold it onto
+    `nodes` rather than delete a valid three-member group."""
+    import json
+
+    from graphify.cache import cache_dir, file_hash, load_cached, save_semantic_cache
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    nodes = [{"id": nid, "source_file": "doc.md"} for nid in ("a", "b", "c")]
+    save_semantic_cache(nodes, [], root=tmp_path, merge_existing=True)
+    cache = load_cached(doc, root=tmp_path, kind="semantic")
+    assert cache is not None
+    cache["hyperedges"] = [{"id": "legacy_alias", "members": ["a", "b", "c"]}]
+    path = cache_dir(tmp_path, "semantic") / f"{file_hash(doc, tmp_path)}.json"
+    path.write_text(json.dumps(cache), encoding="utf-8")
+
+    save_semantic_cache(
+        [{"id": "d", "source_file": "doc.md"}], [], root=tmp_path, merge_existing=True,
+    )
+    cached = load_cached(doc, root=tmp_path, kind="semantic")
+    assert [h["id"] for h in cached["hyperedges"]] == ["legacy_alias"]
+    assert cached["hyperedges"][0]["nodes"] == ["a", "b", "c"]
 
 
 def test_save_semantic_cache_merge_existing_prunes_only_incoming(tmp_path):

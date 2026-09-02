@@ -1579,6 +1579,57 @@ def test_build_from_json_prunes_dangling_hyperedge_members(capsys):
     assert "he_below_minimum" in capsys.readouterr().err
 
 
+def _doc(nid: str, label: str, source_file: str) -> dict:
+    return {"id": nid, "label": label, "file_type": "document", "source_file": source_file}
+
+
+def test_build_from_json_counts_distinct_members_after_doc_twin_fold(capsys):
+    """The member dedupe in _normalize_hyperedge_members runs BEFORE the doc-twin
+    fold (#1799) maps `<slug>` onto `<slug>_doc`. A hyperedge naming both twins
+    therefore ends up with the same id twice, and the minimum-cardinality check
+    must count DISTINCT members, not list positions: three positions with two
+    distinct ids is a pair, not a group."""
+    ext = {
+        "nodes": [
+            _doc("docs_guide", "Guide", "docs/guide.md"),
+            _doc("docs_guide_doc", "Guide (semantic)", "docs/guide.md"),
+            _doc("docs_other_doc", "Other", "docs/other.md"),
+            _doc("docs_third_doc", "Third", "docs/third.md"),
+        ],
+        "edges": [],
+        "hyperedges": [
+            {"id": "he_twins_pair", "source_file": "docs/other.md",
+             "nodes": ["docs_guide", "docs_guide_doc", "docs_other_doc"]},
+            {"id": "he_twins_kept", "source_file": "docs/other.md",
+             "nodes": ["docs_guide", "docs_guide_doc", "docs_other_doc", "docs_third_doc"]},
+        ],
+    }
+    G = build_from_json(ext)
+    hes = {h["id"]: h for h in G.graph.get("hyperedges", [])}
+    assert set(hes) == {"he_twins_kept"}, "two distinct members is a pair, not a hyperedge"
+    assert hes["he_twins_kept"]["nodes"] == ["docs_guide_doc", "docs_other_doc", "docs_third_doc"]
+    assert "he_twins_pair" in capsys.readouterr().err
+
+
+def test_build_from_json_counts_distinct_members_after_case_remap(capsys):
+    """Same invariant via the other collapse path: a member that misses the node
+    set only by casing is remapped through norm_to_id onto the canonical id, so
+    `Foo` and `foo` become the same member and must be counted once."""
+    ext = {
+        "nodes": [
+            {"id": "foo", "label": "foo", "file_type": "code", "source_file": "a.py"},
+            {"id": "bar", "label": "bar", "file_type": "code", "source_file": "a.py"},
+        ],
+        "edges": [],
+        "hyperedges": [
+            {"id": "he_cased", "nodes": ["foo", "Foo", "bar"], "source_file": "a.py"},
+        ],
+    }
+    G = build_from_json(ext)
+    assert G.graph.get("hyperedges", []) == []
+    assert "he_cased" in capsys.readouterr().err
+
+
 # --- foreign-absolute source_file must not leak into IDs --------------------
 # A graph.json is portable: built in Docker/Linux CI, updated on a Windows
 # workstation, or the reverse. Every guard that asks "is this stored path

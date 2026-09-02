@@ -1305,7 +1305,13 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
             # pair (or singleton), the relationship belongs in ordinary edges,
             # not the hyperedge set, so drop the hyperedge as a whole.
             if isinstance(he, dict) and isinstance(he.get("nodes"), list):
+                # Count DISTINCT members: the dedupe _normalize_hyperedge_members
+                # did above is undone by three later steps that can map two ids
+                # onto one — the semantic re-key, the doc-twin fold, and the
+                # norm_to_id remap right here (a ghost onto its AST twin, or
+                # `Foo` onto `foo`). Three positions naming two nodes is a pair.
                 valid_members = []
+                seen_members: set = set()
                 for m in he["nodes"]:
                     try:
                         hash(m)
@@ -1313,7 +1319,8 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
                         continue
                     if m not in node_set and isinstance(m, str):
                         m = norm_to_id.get(_normalize_id(m), m)
-                    if m in node_set:
+                    if m in node_set and m not in seen_members:
+                        seen_members.add(m)
                         valid_members.append(m)
                 if len(valid_members) < MIN_HYPEREDGE_MEMBERS:
                     print(
@@ -1393,6 +1400,14 @@ def build(
         for n in combined["nodes"]:
             if isinstance(n, dict):
                 _fold_node_aliases(n)
+        # Canonicalize hyperedge members before dedup for the same reason (#1561):
+        # dedup rewires members onto survivors via _remap_hyperedge_members, which
+        # can only read the canonical `nodes` list, so an alias-keyed (`members` /
+        # `node_ids`) or duplicate-member hyperedge would be passed through
+        # un-rewired. Idempotent — build_from_json's own fold below then finds
+        # the aliases already gone and stays silent.
+        for he in combined["hyperedges"]:
+            _normalize_hyperedge_members(he)
         combined["nodes"], combined["edges"] = deduplicate_entities(
             combined["nodes"], combined["edges"], communities={},
             dedup_llm_backend=dedup_llm_backend, root=root,
@@ -2011,10 +2026,18 @@ def build_merge(
                     file=sys.stderr,
                 )
 
-        # Hyperedges were validated when build() assembled the graph, before
-        # this deleted-source prune removed nodes. Revalidate their members
-        # against the final graph so a carried group cannot degrade to a pair
-        # or retain a dangling member after an incremental update.
+    # Final gate on hyperedge cardinality — whether or not a prune ran. build()
+    # validated members when it assembled the graph; the deleted-source prune
+    # above may have removed nodes since, and a carried group must not reach
+    # graph.json degraded to a pair or holding a dangling member after an
+    # incremental update. With no prune nothing removes nodes between build()
+    # and here, so on that path this is a defensive gate, not a live repair.
+    # Guarded on the key being present: build_from_json only sets
+    # G.graph["hyperedges"] when hyperedge metadata flowed through (an explicit
+    # [] marks a full wipeout, #2485), and to_json keys its "file already holds
+    # hyperedges but the graph carries none" warning on the key being ABSENT.
+    # Manufacturing an empty list here would silence that diagnostic.
+    if "hyperedges" in G.graph:
         final_hyperedges = []
         for he in G.graph.get("hyperedges", []):
             if not isinstance(he, dict) or not isinstance(he.get("nodes"), list):

@@ -12,6 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from graphify._minhash import MinHash, MinHashLSH
+from graphify.build import _has_minimum_hyperedge_members
 from rapidfuzz.distance import DamerauLevenshtein, Jaro, JaroWinkler
 
 
@@ -473,13 +474,23 @@ def _remap_hyperedge_members(hyperedges: list[dict], remap: dict[str, str]) -> N
     behaviour dropped the loser without promoting it, which shrank the group
     *and* lost the participant. Order is preserved so a rebuilt graph does not
     churn.
+
+    A group left with fewer than ``MIN_HYPEREDGE_MEMBERS`` distinct survivors is
+    dropped — a pair belongs in the ordinary edge set. Entries without a
+    canonical ``nodes`` list are passed through unchanged, never deleted.
     """
-    kept: list[dict] = []
+    kept: list = []
     for he in hyperedges:
-        if not isinstance(he, dict):
-            continue
-        members = he.get("nodes")
+        members = he.get("nodes") if isinstance(he, dict) else None
         if not isinstance(members, list):
+            # Nothing this remap can interpret: a non-dict, a member-less dict, or
+            # an alias-keyed (`members`/`node_ids`) entry build_from_json has not
+            # canonicalized yet. Pass it through untouched — the kept-list rewrite
+            # below must never turn "skip" into "delete". Such an entry is NOT
+            # rewired onto survivors here; on the build() path that cannot bite,
+            # because build() normalizes hyperedges before dedup, so only direct
+            # deduplicate_entities(..., hyperedges=) callers reach this branch.
+            kept.append(he)
             continue
         seen: set = set()
         rewired: list = []
@@ -499,7 +510,7 @@ def _remap_hyperedge_members(hyperedges: list[dict], remap: dict[str, str]) -> N
                 seen.add(new_id)
             rewired.append(entry)
         he["nodes"] = rewired
-        if len(rewired) >= 3:
+        if _has_minimum_hyperedge_members(he):
             kept.append(he)
     hyperedges[:] = kept
 
