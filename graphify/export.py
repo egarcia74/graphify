@@ -178,14 +178,24 @@ _CONFIDENCE_SCORE_DEFAULTS = {"EXTRACTED": 1.0, "INFERRED": 0.55, "AMBIGUOUS": 0
 
 
 def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
-    """Store hyperedges in the graph's metadata dict."""
+    """
+    Attach valid hyperedges to the graph metadata.
+    
+    Parameters:
+        G (nx.Graph): Graph whose metadata receives the hyperedges.
+        hyperedges (list): Hyperedge candidates to canonicalize and add. Invalid
+            candidates are ignored, and identified duplicates are skipped.
+    """
 
     def valid_candidate(h: object) -> dict | None:
-        """Canonicalize *h* against G's nodes, or None when it is not a group.
-
-        merge-graphs hands persisted metadata straight to this boundary with no
-        build_from_json in between, so the shared gate does the alias fold,
-        member coercion and dedupe before filtering to nodes G actually has.
+        """
+        Canonicalize a hyperedge against the graph's nodes.
+        
+        Parameters:
+        	h (object): Hyperedge candidate to canonicalize.
+        
+        Returns:
+        	dict | None: The canonical hyperedge, or `None` if the candidate is invalid.
         """
         return canonical_hyperedge(h, G)
 

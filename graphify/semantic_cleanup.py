@@ -170,25 +170,15 @@ def _validate_semantic_id(errors: list[str], field: str, value: object) -> None:
 
 
 def sanitize_semantic_fragment(fragment: dict) -> dict:
-    """Clean up a semantic extraction fragment in-place.
-
-    Operations:
-    1. Removes nodes with ``file_type: "rationale"`` or ``file_type: "concept"``
-       that were emitted by an LLM (these are not valid semantic entity types).
-    2. Detects nodes whose label reads like a sentence / rationale paragraph
-       AND that participate in a ``rationale_for`` edge, then converts the
-       label into a ``rationale`` attribute on the target node and removes
-       the source-node + its edges. The ``rationale_for`` edge signal applies
-       regardless of the source node's ``file_type`` — sentence-like nodes
-       with allowed types (``document``, ``code``) are still cleaned up when
-       they're explicitly marked as rationale.
-    3. Strips nodes whose only distinguishing field is the label itself
-       (empty id — likely LLM hallucination).
-    4. Filters hyperedges so they cannot reference removed or unknown node
-       IDs after the cleanup passes above. A hyperedge with fewer than three
-       surviving members is dropped.
-
-    Returns the same dict for convenience.
+    """Clean and normalize a semantic extraction fragment in place.
+    
+    Removes invalid or unidentifiable nodes, converts qualifying rationale nodes
+    into ``rationale`` attributes on their targets, removes edges referencing
+    deleted nodes, and retains only hyperedges with at least three surviving
+    members.
+    
+    Returns:
+        dict: The same fragment dictionary after sanitization.
     """
     _invalid_ft = frozenset({"rationale", "concept"})
 

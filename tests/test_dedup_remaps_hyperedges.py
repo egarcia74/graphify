@@ -18,14 +18,24 @@ from graphify.dedup import _remap_hyperedge_members, deduplicate_entities
 
 
 def _node(nid, label):
+    """
+    Create a node fixture with the specified identifier and label.
+    """
     return {"id": nid, "label": label, "file_type": "concept",
             "source_file": "notes/a.md"}
 
 
 def _extraction(members, key="nodes"):
-    """Two nodes that normalise to the same label, so dedup merges them; the
-    hyperedge names the id that loses. `key` lets a test spell the member list
-    with a legacy alias (`members` / `node_ids`) instead of canonical `nodes`."""
+    """
+    Build a fixture containing four nodes and one hyperedge with the provided members.
+    
+    Parameters:
+        members: Hyperedge member values.
+        key (str): Hyperedge field name containing the members.
+    
+    Returns:
+        dict: Entity data containing nodes, an empty edge list, and the configured hyperedge.
+    """
     return {
         "nodes": [
             _node("alpha_a", "Alpha Concept"),

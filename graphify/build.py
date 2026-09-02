@@ -55,32 +55,17 @@ def _has_minimum_hyperedge_members(he: object) -> bool:
 
 
 def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
-    """Return a canonical copy of hyperedge *he*, or None when it is not a group.
-
-    The one gate every persistence boundary shares. Callers hand this raw
-    producer output or a reloaded graph.json, so the shape has to be settled
-    before the cardinality rule can mean anything:
-
-    - a ``members``/``node_ids`` alias (#1561) carries no ``nodes`` key at all,
-      and would be read as "no members" rather than folded;
-    - a member listed twice, or two members an id remap collapsed onto one,
-      inflates a pair into an apparent group;
-    - a member object (``{"id": "a"}``) is not comparable to a node id (#2486).
-
-    ``_normalize_hyperedge_members`` settles all three on a shallow copy, so the
-    caller's dict is untouched — the same contract ``cache._normalized`` keeps
-    for ``source_file``, and it matters because downstream steps (``_partial``
-    marker stripping, manifest stamping) still read the original shape.
-
-    ``node_ids`` is any container of surviving node ids — a set, or an
-    ``nx.Graph`` (``m in G`` is node membership). When given, members absent
-    from it are dropped, so a group cannot keep a dangling member or survive on
-    members its graph no longer has. Pass None to check shape and cardinality
-    only, which is what the semantic cache does: it has no node set.
-
-    Returns the canonical copy iff it still has ``MIN_HYPEREDGE_MEMBERS``
-    distinct members, else None. A pairwise relationship belongs in the ordinary
-    edge set.
+    """
+    Create a normalized hyperedge copy when it contains at least three distinct members.
+    
+    Parameters:
+        he (object): Hyperedge data to normalize.
+        node_ids (object, optional): Container of valid node identifiers. Members absent
+            from this container are removed.
+    
+    Returns:
+        dict | None: The normalized hyperedge, or None if the input is malformed or
+        has fewer than three surviving distinct members.
     """
     if not isinstance(he, dict):
         return None
@@ -103,9 +88,15 @@ def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
 
 
 def _is_ast_tier(item: dict) -> bool:
-    """AST vs semantic tier. _origin wins when present; unstamped legacy items
-    (pre-0.9.16) fall back to shape: deterministic extractors emit
-    source_location 'L<line>', the semantic spec emits null (#2334)."""
+    """
+    Determine whether an extraction item belongs to the AST tier.
+    
+    Parameters:
+        item (dict): Extraction item containing tier provenance or source-location data.
+    
+    Returns:
+        bool: `true` if the item is identified as AST-originated, `false` otherwise.
+    """
     o = item.get("_origin")
     if o is not None:
         return o == "ast"
@@ -857,12 +848,18 @@ def _doc_twin_remap(nodes: list) -> dict[str, str]:
 
 
 def build_from_json(extraction: dict, *, directed: bool = False, root: str | Path | None = None) -> nx.Graph:
-    """Build a NetworkX graph from an extraction dict.
-
-    directed=True produces a DiGraph that preserves edge direction (source→target).
-    directed=False (default) produces an undirected Graph for backward compatibility.
-    root: if given, absolute source_file paths from semantic subagents are made
-        relative to root so all nodes share a consistent path key (#932).
+    """Build a NetworkX graph from an extraction dictionary.
+    
+    Parameters:
+    	directed (bool): Whether to preserve directed edges in a ``DiGraph``.
+    		When false, builds an undirected ``Graph`` while retaining original
+    		edge direction metadata.
+    	root (str | Path | None): Root directory used to relativize absolute
+    		source-file paths.
+    
+    Returns:
+    	nx.Graph: The constructed graph with normalized nodes, edges, and
+    		hyperedge metadata.
     """
     _root = str(Path(root).resolve()) if root else None
     # NetworkX <= 3.1 serialised edges as "links"; remap to "edges" for compatibility.
@@ -1413,20 +1410,18 @@ def build(
     dedup_llm_backend: str | None = None,
     root: str | Path | None = None,
 ) -> nx.Graph:
-    """Merge multiple extraction results into one graph.
-
-    directed=True produces a DiGraph that preserves edge direction (source→target).
-    directed=False (default) produces an undirected Graph for backward compatibility.
-    dedup=True (default) runs entity deduplication before building the graph.
-    dedup_llm_backend: if set (e.g. "gemini", "claude", or "kimi"), uses LLM to resolve
-        ambiguous pairs in the 75–92 Jaro-Winkler score zone.
-    root: if given, absolute source_file paths are made relative to root (#932).
-
-    With dedup disabled, extractions are merged in order and the last node's
-    attributes win (NetworkX add_node overwrites). With dedup enabled, nodes
-    sharing an ID use a deterministic survivor and retain missing attributes
-    from duplicate records of the same source entity. Genuine cross-file ID
-    collisions remain isolated and are reported.
+    """
+    Merge multiple extraction results into a single graph.
+    
+    Parameters:
+        extractions (list[dict]): Extraction results containing nodes, edges, hyperedges, and token counts.
+        directed (bool): Whether to preserve edge direction in the resulting graph.
+        dedup (bool): Whether to deduplicate entities before building the graph.
+        dedup_llm_backend (str | None): Optional LLM backend for resolving ambiguous entity matches.
+        root (str | Path | None): Root directory used to relativize absolute source paths.
+    
+    Returns:
+        nx.Graph: The assembled graph.
     """
     from graphify.dedup import deduplicate_entities
     combined: dict = {"nodes": [], "edges": [], "hyperedges": [], "input_tokens": 0, "output_tokens": 0}

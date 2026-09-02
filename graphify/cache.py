@@ -1391,53 +1391,34 @@ def save_semantic_cache(
     partial_source_files: Iterable[str | Path] | None = None,
     cache_root: "Path | None" = None,
 ) -> int:
-    """Save semantic extraction results to cache, keyed by source_file.
-
-    Groups nodes and edges by source_file, then saves one cache entry per file
-    under cache/semantic/ (separate from AST entries in cache/ast/) to prevent
-    hash-key collisions (#582).
-
-    ``mode`` selects the cache namespace, mirroring
-    :func:`check_semantic_cache`: ``None`` (the default) writes
-    ``cache/semantic/`` — byte-identical to the historical behavior for
-    existing callers that omit it — while a non-None mode (e.g. ``"deep"``)
-    writes ``cache/semantic-{mode}/`` so richer deep-mode results never
-    overwrite standard-mode entries and vice versa (#1894).
-
-    When ``merge_existing`` is True, any already-cached entry for a file is
-    unioned with the new results before saving instead of being overwritten.
-    This lets callers checkpoint incrementally (e.g. once per chunk) without
-    dropping a prior slice of a large file that was split across chunks.
-
-    When ``allowed_source_files`` is provided, only those files may be used as
-    cache-write keys. Semantic nodes can legitimately mention another corpus
-    file, but a model must not be able to replace that file's complete cache
-    entry unless the file was part of the current extraction batch (#1757).
-
-    When ``partial_source_files`` is provided, entries for those files are
-    stamped ``partial: True`` — the extraction was truncated, so the entry is
-    incomplete and :func:`load_cached` must treat it as a miss. Partial-ness is
-    ALSO detected intrinsically from a ``_partial`` marker on any grouped item,
-    so the flag survives even when a caller (e.g. cli.py's final save) does not
-    pass ``partial_source_files``.
-
-    ``prompt`` is the extraction prompt that produced these results — text, or
-    a Path to the prompt file. It stamps entries into the p{fingerprint}/
-    namespace so a later run under a different prompt re-extracts rather than
-    replaying them (#1939). Pass the same prompt here as to
-    :func:`check_semantic_cache`, or the write lands in a namespace the next
-    read won't consult.
-
-    ``cache_root`` decouples *where* the cache directory is written from the
-    source-key anchor ``root`` — mirroring the same split that :func:`load_cached`
-    and :func:`save_cached` already expose (#1774). When given, cache files land
-    under ``cache_root`` while ``source_file`` paths are still resolved and
-    relativized against ``root``. When omitted, ``root`` is used for both
-    purposes (unchanged behaviour for existing callers). This fixes checkpoints
-    and the final save going to the corpus tree instead of ``--out`` (#1990,
-    #1991).
-
-    Returns the number of files cached.
+    """
+    Save semantic extraction results as per-source-file cache entries.
+    
+    Results are grouped by ``source_file`` and written to the semantic cache. When
+    ``merge_existing`` is true, existing entries are combined with the new results.
+    Partial entries remain marked as incomplete, including when partial extraction is
+    indicated by grouped items.
+    
+    Parameters:
+        nodes (list[dict]): Semantic nodes to cache.
+        edges (list[dict]): Semantic edges to cache.
+        hyperedges (list[dict] | None): Optional hyperedges to cache.
+        root (Path): Root used to resolve and normalize source-file paths.
+        merge_existing (bool): Whether to merge results with existing entries.
+        allowed_source_files (Iterable[str | Path] | None): Files permitted as cache
+            keys.
+        mode (str | None): Semantic cache namespace to use.
+        prompt (str | Path | None): Prompt text or prompt-file path used to select
+            the cache namespace.
+        prompt_file (str | Path | None): Prompt-file path used to select the cache
+            namespace.
+        partial_source_files (Iterable[str | Path] | None): Files whose entries
+            should be marked incomplete.
+        cache_root (Path | None): Directory in which to write cache files. If
+            omitted, ``root`` is used.
+    
+    Returns:
+        int: Number of source-file entries saved.
     """
     from collections import defaultdict
 

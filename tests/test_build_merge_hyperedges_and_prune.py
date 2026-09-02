@@ -37,7 +37,15 @@ def _he_ids(G) -> set[str]:
 # ── #1574: hyperedge preservation ─────────────────────────────────────────────
 
 def _seed_two_file_graph(tmp_path):
-    """Write a two-file graph.json with per-file and cross-file hyperedges."""
+    """
+    Write a graph containing two files with per-file and cross-file hyperedges.
+    
+    Parameters:
+    	tmp_path (Path): Temporary directory in which to create the graph and corpus directory.
+    
+    Returns:
+    	tuple: The corpus root directory and path to the written graph file.
+    """
     root = tmp_path / "corpus"
     root.mkdir()
     graph_path = tmp_path / "graph.json"
@@ -149,10 +157,22 @@ _TWO_NODES = [
 
 
 def _fake_build_returning(hyperedges):
-    """Stand-in for build(): the seeded nodes (so the #479 shrink guard stays quiet)
-    plus whatever hyperedge metadata the test wants to smuggle past build()."""
+    """
+    Create a test double for `build` with seeded nodes and supplied hyperedge metadata.
+    
+    Parameters:
+        hyperedges: Hyperedge metadata to attach to the generated graph.
+    
+    Returns:
+        A callable that returns a graph containing the seeded nodes and, when provided, the specified hyperedges.
+    """
     def fake_build(*args, **kwargs):
-        """Stand in for build(), returning the seeded nodes plus canned hyperedge metadata."""
+        """
+        Create a graph containing the seeded nodes and optional canned hyperedge metadata.
+        
+        Returns:
+        	networkx.Graph: The seeded graph, with hyperedge metadata when provided.
+        """
         G = nx.Graph()
         for n in _TWO_NODES:
             G.add_node(n["id"], **n)

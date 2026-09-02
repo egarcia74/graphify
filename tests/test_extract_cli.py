@@ -1200,7 +1200,12 @@ def test_no_cluster_incremental_drops_a_hyperedge_left_dangling_by_a_prune(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake-key")
 
     def _fake_extract(paths, **kwargs):
-        """Return one README-owned group spanning both Python files' AST nodes."""
+        """
+        Provide a synthetic extraction result containing a README-owned hyperedge spanning AST nodes from Python files.
+        
+        Returns:
+            dict: Extraction data with nodes, edges, hyperedges, and token counts.
+        """
         on_chunk = kwargs.get("on_chunk_done")
         if on_chunk:
             on_chunk(0, 1, {"nodes": [], "edges": [], "hyperedges": []})
