@@ -550,12 +550,29 @@ def deduplicate_entities(
             f"Cross-project dedup is disabled — run dedup per-repo before merging."
         )
 
-    if len(nodes) <= 1:
-        # Nothing to merge, but the hyperedge contract still holds: the
-        # cardinality cleanup must not depend on whether a remap happened.
+    def _finish(
+        out_nodes: list[dict], out_edges: list[dict], remap: dict[str, str],
+    ) -> tuple[list[dict], list[dict]]:
+        """Rewire hyperedge members onto survivors, then return the pair.
+
+        Hyperedge members are node references exactly like edge endpoints, and
+        must follow the survivor for the same reason. Without this the member
+        naming a merged-away id was simply absent from the rebuilt graph: the
+        group lost a participant silently, could fall under the 3-member
+        threshold that makes it a hyperedge at all, and left NO dangling
+        reference, so a referential-integrity check saw nothing wrong (#2805).
+
+        Every return goes through here, including the short-circuits where
+        nothing merged: the cardinality contract must not depend on whether a
+        remap happened, or a direct caller keeps a pair that every other path
+        rejects.
+        """
         if hyperedges:
-            _remap_hyperedge_members(hyperedges, {})
-        return nodes, edges
+            _remap_hyperedge_members(hyperedges, remap)
+        return out_nodes, out_edges
+
+    if len(nodes) <= 1:
+        return _finish(nodes, edges, {})
 
     # Resolve the scan root once: _collision_rank ranks each node's source_file
     # relative to it, so an absolute stored path and its repo-relative twin rank
@@ -611,7 +628,7 @@ def deduplicate_entities(
     unique_nodes = list(seen_ids.values())
 
     if len(unique_nodes) <= 1:
-        return unique_nodes, edges
+        return _finish(unique_nodes, edges, {})
 
     # ── pass 1: exact normalization ───────────────────────────────────────────
     norm_to_nodes: dict[str, list[dict]] = defaultdict(list)
@@ -826,11 +843,7 @@ def deduplicate_entities(
 
     # ── apply remap ───────────────────────────────────────────────────────────
     if not remap:
-        # No merges — still run the hyperedge pass (dedupe + minimum cardinality)
-        # so a direct caller gets the same cleanup on every return path.
-        if hyperedges:
-            _remap_hyperedge_members(hyperedges, {})
-        return unique_nodes, edges
+        return _finish(unique_nodes, edges, {})
 
     total = len(remap)
     msg = f"[graphify] Deduplicated {total} node(s)"
@@ -845,15 +858,6 @@ def deduplicate_entities(
     if parts:
         msg += f" ({', '.join(parts)})"
     print(msg + ".", flush=True)
-
-    # Hyperedge members are node references exactly like edge endpoints, and
-    # must follow the survivor for the same reason. Without this the member
-    # naming a merged-away id was simply absent from the rebuilt graph: the
-    # group lost a participant silently, could fall under the 3-member threshold
-    # that makes it a hyperedge at all, and left NO dangling reference, so a
-    # referential-integrity check saw nothing wrong (#2805).
-    if hyperedges:
-        _remap_hyperedge_members(hyperedges, remap)
 
     deduped_nodes = [n for n in unique_nodes if n["id"] not in remap]
     deduped_edges = []
@@ -876,7 +880,7 @@ def deduplicate_entities(
         if e["source"] != e["target"]:
             deduped_edges.append(e)
 
-    return deduped_nodes, deduped_edges
+    return _finish(deduped_nodes, deduped_edges, remap)
 
 
 def _pick_winner(nodes: list[dict]) -> dict:

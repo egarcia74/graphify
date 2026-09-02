@@ -202,3 +202,15 @@ def test_a_pair_is_dropped_on_the_single_node_short_circuit():
     hes = [{"id": "pair", "nodes": ["beta_node", "gamma_node"]}]
     deduplicate_entities([_node("beta_node", "Beta")], [], communities={}, hyperedges=hes)
     assert hes == []
+
+
+def test_a_pair_is_dropped_after_duplicate_id_collapse():
+    """The third early return: two records sharing one id collapse to a single
+    `unique_nodes` entry, so the function short-circuits AFTER the initial
+    length check and used to skip the hyperedge pass on the way out."""
+    hes = [{"id": "pair", "nodes": ["only_node", "beta_node"]}]
+    deduplicate_entities(
+        [_node("only_node", "Only"), _node("only_node", "Only Again")],
+        [], communities={}, hyperedges=hes,
+    )
+    assert hes == []
