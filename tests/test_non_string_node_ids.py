@@ -91,6 +91,70 @@ def test_node_id_set_coerces_numeric_ids_like_members_are():
     assert kept[0]["nodes"] == ["7", "8", "9"]
 
 
+def test_graph_container_membership_uses_the_coerced_id_space():
+    """`attach_hyperedges`, `to_json` and `build_merge` pass the graph itself as
+    the container. Coercing only the member side left `"7" in nx.Graph([7])`
+    False, so every member of a valid group over numeric node ids was dropped —
+    the list path was fixed by node_id_set, the container path was not."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import networkx as nx
+
+    from graphify.build import canonical_hyperedge
+    from graphify.export import attach_hyperedges, to_json
+
+    G = nx.Graph()
+    G.add_nodes_from([7, 8, 9])
+    assert canonical_hyperedge({"id": "g", "nodes": [7, 8, 9]}, G)["nodes"] == ["7", "8", "9"]
+
+    H = nx.Graph()
+    H.add_nodes_from([7, 8, 9])
+    attach_hyperedges(H, [{"id": "g", "nodes": [7, 8, 9]}])
+    assert [h["id"] for h in H.graph.get("hyperedges", [])] == ["g"]
+
+    J = nx.Graph()
+    J.add_nodes_from([7, 8, 9])
+    J.graph["hyperedges"] = [{"id": "g", "nodes": [7, 8, 9]}]
+    out = Path(tempfile.mkdtemp()) / "graph.json"
+    to_json(J, {0: [7, 8, 9]}, str(out))
+    assert [h["id"] for h in json.loads(out.read_text())["hyperedges"]] == ["g"]
+
+
+def test_prefix_graph_for_global_builds_the_relabel_map_once(monkeypatch):
+    """The coerced relabel map must be built once per graph, not once per
+    hyperedge — rebuilding it inside the loop makes prefixing O(nodes x
+    hyperedges), and a semantic graph can carry thousands of groups."""
+    import networkx as nx
+
+    import graphify.build as buildmod
+
+    calls = {"n": 0}
+    real = buildmod._coerce_id
+
+    def counting(value):
+        calls["n"] += 1
+        return real(value)
+
+    monkeypatch.setattr(buildmod, "_coerce_id", counting)
+
+    nodes = list(range(50))
+    G = nx.Graph()
+    G.add_nodes_from(nodes)
+    G.graph["hyperedges"] = [
+        {"id": f"h{i}", "nodes": [0, 1, 2]} for i in range(20)
+    ]
+    buildmod.prefix_graph_for_global(G, "repo")
+
+    # 50 nodes + 20 groups x 3 members = 110 if the map is built once; rebuilding
+    # it per hyperedge costs 50 x 20 = 1000 extra coercions on its own.
+    assert calls["n"] < 500, (
+        f"_coerce_id called {calls['n']} times — the relabel map is being "
+        f"rebuilt per hyperedge"
+    )
+
+
 def test_prefix_graph_for_global_prefixes_numeric_members():
     """`merge-graphs` relabels node `7` to `repo::7`, and member normalization
     turns the member into `"7"` — so the relabel lookup must be keyed in the

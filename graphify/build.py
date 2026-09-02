@@ -98,6 +98,15 @@ def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
         # `is not None`, never a truthiness test: set() and nx.Graph() are both
         # falsy, and skipping the filter for an empty graph would keep a group
         # whose every member dangles.
+        #
+        # Members were coerced above, so the container has to be read in the
+        # same space or `"7" in nx.Graph([7])` is False and a valid group over
+        # numeric ids loses every member. A set is trusted as already coerced
+        # (build it with node_id_set); anything else — an nx.Graph, a list — is
+        # coerced here. Callers that gate many hyperedges should pass a prebuilt
+        # set: this walks the container once per call.
+        if not isinstance(node_ids, (set, frozenset)):
+            node_ids = {_coerce_id(n) for n in node_ids}
         he["nodes"] = [m for m in he["nodes"] if m in node_ids]
     return he if _has_minimum_hyperedge_members(he) else None
 
@@ -2179,10 +2188,11 @@ def build_merge(
     # hyperedges but the graph carries none" warning on the key being ABSENT.
     # Manufacturing an empty list here would silence that diagnostic.
     if "hyperedges" in G.graph:
+        _final_ids = node_id_set({"id": n} for n in G)
         G.graph["hyperedges"] = [
             candidate
             for he in G.graph.get("hyperedges", [])
-            if (candidate := canonical_hyperedge(he, G)) is not None
+            if (candidate := canonical_hyperedge(he, _final_ids)) is not None
         ]
 
     # Safety check: refuse to SILENTLY drop nodes (#479, reworked in #2497).
@@ -2287,6 +2297,10 @@ def prefix_graph_for_global(
     hyperedges = H.graph.get("hyperedges")
     if isinstance(hyperedges, list):
         rewritten = []
+        # Built once per graph, not per hyperedge: a semantic graph can carry
+        # thousands of groups, and rebuilding this map inside the loop makes
+        # prefixing O(nodes x hyperedges).
+        _coerced_relabel = {_coerce_id(old): new for old, new in relabel.items()}
         for he in hyperedges:
             if isinstance(he, dict):
                 he = dict(he)
@@ -2304,9 +2318,6 @@ def prefix_graph_for_global(
                     # the member stays unprefixed while its node becomes
                     # `repo::7` — after which attach_hyperedges drops the group
                     # for having no member backed by a node.
-                    _coerced_relabel = {
-                        _coerce_id(old): new for old, new in relabel.items()
-                    }
                     he["nodes"] = [
                         _coerced_relabel.get(m, m) if _hashable(m) else m
                         for m in he["nodes"]

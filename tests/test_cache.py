@@ -1473,6 +1473,53 @@ def test_save_semantic_cache_merge_existing_heals_legacy_alias_entry(tmp_path):
     assert cached["hyperedges"][0]["nodes"] == ["a", "b", "c"]
 
 
+def test_check_semantic_cache_treats_an_undersized_legacy_entry_as_a_miss(tmp_path):
+    """A cache entry written before the cardinality gate can hold nothing but a
+    two-member group. Gating only on write cannot heal an entry that is merely
+    read: the raw list is non-empty, so the zero-output check passes, the file
+    is reported as a hit, the CLI gate then removes the pair, and the file is
+    never freshly extracted — repeating every run. Cardinality needs no node
+    set, so it can be judged on read."""
+    import json
+
+    from graphify.cache import cache_dir, check_semantic_cache, file_hash
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    entry = cache_dir(tmp_path, "semantic")
+    entry.mkdir(parents=True, exist_ok=True)
+    (entry / f"{file_hash(doc, tmp_path)}.json").write_text(json.dumps({
+        "nodes": [], "edges": [],
+        "hyperedges": [{"id": "legacy_pair", "nodes": ["a", "b"]}],
+    }), encoding="utf-8")
+
+    _nodes, _edges, hyperedges, uncached = check_semantic_cache([str(doc)], root=tmp_path)
+    assert hyperedges == [], "the pair must not be replayed as cached output"
+    assert [str(p) for p in uncached] == [str(doc)], (
+        "an entry whose only output is unusable is a miss, so the file is re-extracted"
+    )
+
+
+def test_check_semantic_cache_keeps_a_valid_legacy_entry(tmp_path):
+    """The over-fix guard: an entry carrying a real group is still a hit."""
+    import json
+
+    from graphify.cache import cache_dir, check_semantic_cache, file_hash
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    entry = cache_dir(tmp_path, "semantic")
+    entry.mkdir(parents=True, exist_ok=True)
+    (entry / f"{file_hash(doc, tmp_path)}.json").write_text(json.dumps({
+        "nodes": [], "edges": [],
+        "hyperedges": [{"id": "trio", "nodes": ["a", "b", "c"]}],
+    }), encoding="utf-8")
+
+    _n, _e, hyperedges, uncached = check_semantic_cache([str(doc)], root=tmp_path)
+    assert [h["id"] for h in hyperedges] == ["trio"]
+    assert uncached == []
+
+
 def test_save_semantic_cache_does_not_cache_a_group_padded_by_a_null_member(tmp_path):
     """The cache has no node set, so it cannot filter members by membership — but
     `None`/`""` can never name a node in any graph. Counting them would cache a

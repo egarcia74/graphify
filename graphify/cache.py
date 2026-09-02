@@ -12,7 +12,7 @@ import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from graphify.build import canonical_hyperedge
+from graphify.build import canonical_hyperedge, gate_hyperedges as _gate_hyperedges
 
 # Output directory name — override with GRAPHIFY_OUT env var for worktrees or
 # shared-output setups. Accepts a relative name ("graphify-out-feature") or an
@@ -1284,9 +1284,21 @@ def check_semantic_cache(
         result = load_cached(p, root, kind=kind, cache_root=cache_root,
                              prompt=prompt, prompt_file=prompt_file)
         if result is not None:
+            # Canonicalize on READ as well as on write. An entry written before
+            # the cardinality gate can hold nothing but a two-member group: the
+            # raw list is non-empty so the zero-output rule at save time passes,
+            # the file replays as a hit, the gates downstream then drop the pair,
+            # and the file is never freshly extracted — repeating every run.
+            # Writing cannot heal an entry that is only ever read. Cardinality
+            # and shape need no node set, so they can be judged here; membership
+            # cannot and stays with the graph-backed gates.
+            _hes, _ = _gate_hyperedges(result.get("hyperedges"))
+            if not result.get("nodes") and not _hes:
+                uncached.append(fpath)
+                continue
             cached_nodes.extend(result.get("nodes", []))
             cached_edges.extend(result.get("edges", []))
-            cached_hyperedges.extend(result.get("hyperedges", []))
+            cached_hyperedges.extend(_hes)
         else:
             uncached.append(fpath)
 
