@@ -323,13 +323,24 @@ def test_canonical_hyperedge_does_not_count_an_unusable_member_id(junk):
 
 
 @pytest.mark.parametrize("number", [7, 0])
-def test_canonical_hyperedge_keeps_a_numeric_member(number):
-    """A numeric id is legitimate — `_coerce_id` turns 7 into "7" and 0 into "0",
-    so it can name a real node and must not be swept up with the unusable refs.
-    `0` in particular must survive the boolean rejection next to it."""
+def test_canonical_hyperedge_canonicalizes_a_numeric_member(number):
+    """A numeric id is legitimate and is canonicalized to its string form, the
+    same coercion `_coerce_non_string_ids` applies on the build path. `0` in
+    particular must survive the boolean rejection sitting next to it."""
     assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", number]})["nodes"] == [
-        "a", "b", number,
+        "a", "b", str(number),
     ]
+
+
+def test_canonical_hyperedge_counts_a_numeric_and_its_string_form_once():
+    """`7` and `"7"` are the same node id — `_coerce_non_string_ids` str-coerces
+    numeric members on the build path. Deduplicating on the raw Python value
+    counted them separately, so `[7, "7", "b"]` passed the cache gate as three
+    members and then collapsed to two on replay and was dropped: precisely the
+    empty-cache-hit the gate exists to prevent."""
+    assert canonical_hyperedge({"id": "h", "nodes": [7, "7", "b"]}) is None
+    kept = canonical_hyperedge({"id": "h", "nodes": [7, "7", "b", "c"]})
+    assert kept["nodes"] == ["7", "b", "c"]
 
 
 def test_canonical_hyperedge_keeps_a_group_exactly_at_the_minimum():

@@ -1612,6 +1612,34 @@ def test_build_from_json_counts_distinct_members_after_doc_twin_fold(capsys):
     assert "he_twins_pair" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("malformed", [
+    {"id": "s", "nodes": "a,b,c"},   # a string, not a list
+    {"id": "d", "nodes": {"a": 1}},  # a dict, not a list
+    {"id": "n", "label": "x"},       # no members at all
+    "not-a-dict",
+], ids=["string-nodes", "dict-nodes", "no-nodes", "non-dict"])
+def test_build_from_json_does_not_persist_a_malformed_hyperedge(malformed, capsys):
+    """The member revalidation only runs for a dict with a list-valued `nodes`;
+    every other shape used to fall straight through to the kept list, so
+    G.graph["hyperedges"] could carry metadata this very boundary would reject.
+    Aliases are already folded by this point, so a non-list `nodes` here is
+    genuinely malformed and must not be persisted for report/wiki/html consumers
+    to read back."""
+    ext = {
+        "nodes": [
+            {"id": n, "label": n, "file_type": "code", "source_file": "a.py"}
+            for n in ("alpha", "beta", "gamma")
+        ],
+        "edges": [],
+        "hyperedges": [
+            malformed,
+            {"id": "he_ok", "nodes": ["alpha", "beta", "gamma"], "source_file": "a.py"},
+        ],
+    }
+    G = build_from_json(ext)
+    assert [h["id"] for h in G.graph.get("hyperedges", [])] == ["he_ok"]
+
+
 def test_build_from_json_counts_distinct_members_after_case_remap(capsys):
     """Same invariant via the other collapse path: a member that misses the node
     set only by casing is remapped through norm_to_id onto the canonical id, so

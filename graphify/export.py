@@ -285,8 +285,11 @@ def to_json(G: nx.Graph, communities: dict[int, list[str]], output_path: str, *,
 
     The canonical persistence boundary: assigns communities, canonicalizes field
     order for byte-stable diffs, gates hyperedge cardinality, and writes
-    atomically. Refuses to shrink an existing graph unless ``force`` (#479), in
-    which case it returns False without writing.
+    atomically.
+
+    Returns True when it wrote. Returns False without writing when the new graph
+    would shrink an existing one (#479) — ``force=True`` bypasses that guard and
+    writes anyway.
     """
     # Safety check: refuse to silently shrink an existing graph (#479)
     existing_path = Path(output_path)

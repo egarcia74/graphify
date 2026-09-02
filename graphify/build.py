@@ -224,8 +224,13 @@ def _coerce_hyperedge_member_refs(he: dict, members: list) -> list:
                 )
                 continue
             ref = inner
-        elif not _is_usable_member_ref(ref):
-            # Same rule as the object branch above — see _is_usable_member_ref.
+        elif not _is_usable_member_ref(ref := _coerce_id(ref)):
+            # Same rule AND the same coercion as the object branch above. The
+            # coercion is what makes the dedupe below agree with replay: the
+            # build path str-coerces numeric members via _coerce_non_string_ids,
+            # so `7` and `"7"` are one node id. Keyed on the raw Python value
+            # they counted as two, letting `[7, "7", "b"]` pass the cache gate as
+            # a group and then collapse to a pair and be dropped on replay.
             print(
                 f"[graphify] WARNING: hyperedge "
                 f"'{he.get('id', '?')}' has an unusable member reference "
@@ -1369,6 +1374,21 @@ def build_from_json(extraction: dict, *, directed: bool = False, root: str | Pat
         # verbatim — never leaks an absolute path from a semantic subagent (#1418).
         kept_hyperedges = []
         for he in hyperedges:
+            # Reject a shape this boundary cannot validate, rather than letting
+            # it fall past the member check below into G.graph["hyperedges"].
+            # Aliases were folded at the top of this function, so a non-list
+            # `nodes` here is genuinely malformed — and it would otherwise be
+            # read back by every consumer of the graph's metadata (report, wiki,
+            # the html exporter, watch's topology compare), each of which
+            # assumes the canonical shape.
+            if not isinstance(he, dict) or not isinstance(he.get("nodes"), list):
+                print(
+                    f"[graphify] WARNING: dropping hyperedge "
+                    f"{he.get('id', '?') if isinstance(he, dict) else he!r} — its "
+                    f"member list is malformed (not a list).",
+                    file=sys.stderr,
+                )
+                continue
             if isinstance(he, dict) and he.get("source_file"):
                 he["source_file"] = _norm_source_file(he["source_file"], _root)
             # Validate members against the built node set (#1916): a hyperedge
