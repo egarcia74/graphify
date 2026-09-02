@@ -1398,6 +1398,38 @@ def test_prune_graph_json_sources_revalidates_a_nested_only_slot(tmp_path):
     assert "hyperedges" not in data, "a nested-only file must not sprout a top-level slot"
 
 
+def test_prune_graph_json_sources_tolerates_an_unhashable_node_id(tmp_path):
+    """A persisted node can carry a malformed list/dict id — the build path
+    deliberately leaves those for the validator to report rather than dropping
+    them. Collecting surviving ids into a set must skip them, or the whole
+    exclusion-only prune aborts with TypeError on a legacy graph.json."""
+    import json
+
+    from graphify.cli import _prune_graph_json_sources
+
+    graph_path = tmp_path / "graph.json"
+    graph_path.write_text(json.dumps({
+        "nodes": [
+            {"id": ["malformed", "list"], "source_file": "live.py"},
+            {"id": {"also": "malformed"}, "source_file": "live.py"},
+            {"id": "a", "source_file": "live.py"},
+            {"id": "b", "source_file": "live.py"},
+            {"id": "c", "source_file": "live.py"},
+            {"id": "gone", "source_file": "stale.py"},
+        ],
+        "links": [],
+        "hyperedges": [{"id": "grp", "nodes": ["a", "b", "c"], "source_file": "live.py"}],
+    }), encoding="utf-8")
+
+    assert _prune_graph_json_sources(graph_path, ["stale.py"]) == 1
+    data = _read_graph(graph_path)
+    assert [h["id"] for h in data["hyperedges"]] == ["grp"], (
+        "an unrelated malformed node id must not cost a valid group"
+    )
+    # The malformed nodes belong to a live file, so the prune leaves them alone.
+    assert len(data["nodes"]) == 5
+
+
 def test_prune_graph_json_sources_leaves_a_clean_graph_untouched(tmp_path):
     """Nothing to prune must mean no rewrite at all (the caller reports 0)."""
     import json

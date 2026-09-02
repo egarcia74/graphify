@@ -638,15 +638,21 @@ def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int
     if not isinstance(raw_hyper, list):
         nested_hyper = (data.get("graph") or {}).get("hyperedges")
         raw_hyper = nested_hyper if isinstance(nested_hyper, list) else []
+    from graphify.build import (
+        MIN_HYPEREDGE_MEMBERS as _MIN_HE,
+        _hashable as _is_hashable,
+        canonical_hyperedge as _canonical_he,
+    )
     # Filter None explicitly: unlike the raw --no-cluster path (where
     # dedupe_nodes has already stripped id-less nodes) this function keeps them,
     # so an unfiltered set would contain None and let a null member count
-    # towards the minimum.
-    kept_ids = {n["id"] for n in kept_nodes if n.get("id") is not None}
-    from graphify.build import (
-        MIN_HYPEREDGE_MEMBERS as _MIN_HE,
-        canonical_hyperedge as _canonical_he,
-    )
+    # towards the minimum. Skip unhashable ids too — a persisted node can carry
+    # a malformed list/dict id, which the build path deliberately leaves for the
+    # validator to report, and putting one in a set aborts this whole prune.
+    kept_ids = {
+        n["id"] for n in kept_nodes
+        if n.get("id") is not None and _is_hashable(n.get("id"))
+    }
     kept_hyper = [
         c for h in raw_hyper
         if isinstance(h, dict) and h.get("source_file") not in stale

@@ -463,8 +463,6 @@ def _alias_extraction():
             {"id": "a", "label": "A", "file_type": "code", "source_file": "m.py"},
             {"id": "b", "label": "B", "file_type": "code", "source_file": "m.py"},
             {"id": "c", "label": "C", "file_type": "code", "source_file": "m.py"},
-            {"id": "c", "label": "C", "file_type": "code", "source_file": "m.py"},
-            {"id": "c", "label": "C", "file_type": "code", "source_file": "m.py"},
         ],
         "edges": [],
         "hyperedges": [
