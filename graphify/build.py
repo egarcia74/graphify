@@ -105,6 +105,12 @@ def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
 def node_id_set(nodes: object) -> set:
     """Collect the ids from *nodes* that a hyperedge member could name.
 
+    Ids are coerced with :func:`_coerce_id`, the same normalization member refs
+    receive, so the two sides are compared in one space. Without it a numeric
+    node id — a supported input that #2326 heals — stays ``7`` here while its
+    member ref becomes ``"7"``, `"7" in {7}` is False, and every member of an
+    otherwise valid group is dropped.
+
     An id-less node contributes nothing. An unhashable id is skipped rather than
     added: a persisted ``list``/``dict`` id is deliberately tolerated by the
     build path for the validator to report, and putting one in a set raises;
@@ -112,7 +118,7 @@ def node_id_set(nodes: object) -> set:
     let a null member count towards the minimum.
     """
     return {
-        n["id"] for n in (nodes or ())
+        _coerce_id(n["id"]) for n in (nodes or ())
         if isinstance(n, dict) and n.get("id") is not None and _hashable(n.get("id"))
     }
 
@@ -2292,8 +2298,17 @@ def prefix_graph_for_global(
                 # discards the whole group for having no member backed by a node.
                 _normalize_hyperedge_members(he)
                 if isinstance(he.get("nodes"), list):
+                    # Look the member up in the COERCED id space. Normalization
+                    # above turns a numeric member into "7" while `relabel` is
+                    # keyed by the raw node id `7`, so a raw lookup misses and
+                    # the member stays unprefixed while its node becomes
+                    # `repo::7` — after which attach_hyperedges drops the group
+                    # for having no member backed by a node.
+                    _coerced_relabel = {
+                        _coerce_id(old): new for old, new in relabel.items()
+                    }
                     he["nodes"] = [
-                        relabel.get(m, m) if _hashable(m) else m
+                        _coerced_relabel.get(m, m) if _hashable(m) else m
                         for m in he["nodes"]
                     ]
                 if he.get("id"):

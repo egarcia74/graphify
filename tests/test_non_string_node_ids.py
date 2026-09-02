@@ -76,6 +76,44 @@ def test_legacy_from_to_endpoints_are_coerced():
     assert G.has_edge("10", "b")
 
 
+def test_node_id_set_coerces_numeric_ids_like_members_are():
+    """#2326 heals numeric node ids to their string form, and member coercion
+    does the same to member refs — so the comparison set has to be built in the
+    same space. Keyed on raw values, `"7" in {7}` is False and every member of
+    an otherwise valid group is dropped."""
+    from graphify.build import gate_hyperedges, node_id_set
+
+    nodes = [{"id": 7}, {"id": 8}, {"id": 9}]
+    assert node_id_set(nodes) == {"7", "8", "9"}
+
+    kept, dropped = gate_hyperedges([{"id": "g", "nodes": [7, 8, 9]}], nodes)
+    assert dropped == 0, "a group over numeric node ids must survive"
+    assert kept[0]["nodes"] == ["7", "8", "9"]
+
+
+def test_prefix_graph_for_global_prefixes_numeric_members():
+    """`merge-graphs` relabels node `7` to `repo::7`, and member normalization
+    turns the member into `"7"` — so the relabel lookup must be keyed in the
+    coerced space too, or the member stays unprefixed and the attach boundary
+    drops the group for having no member backed by a node."""
+    import networkx as nx
+
+    from graphify.build import prefix_graph_for_global
+    from graphify.export import attach_hyperedges
+
+    G = nx.Graph()
+    G.add_nodes_from([7, 8, 9])
+    G.graph["hyperedges"] = [{"id": "g", "nodes": [7, 8, 9]}]
+
+    H = prefix_graph_for_global(G, "repo")
+    assert H.graph["hyperedges"][0]["nodes"] == ["repo::7", "repo::8", "repo::9"]
+
+    merged = nx.Graph()
+    merged.add_nodes_from(H.nodes)
+    attach_hyperedges(merged, [dict(H.graph["hyperedges"][0])])
+    assert [h["id"] for h in merged.graph.get("hyperedges", [])] == ["repo::g"]
+
+
 def test_hyperedge_members_are_coerced_with_their_nodes():
     """#2326: a numeric member is str-coerced alongside its node id."""
     ext = {
