@@ -725,17 +725,10 @@ def _gated_hyperedges(hyperedges: list, nodes: list) -> list:
     deliberately left for the validator), and either would otherwise poison the
     set or raise.
     """
-    from graphify.build import _hashable, canonical_hyperedge
+    from graphify.build import gate_hyperedges
 
-    node_ids = {
-        n["id"] for n in nodes
-        if isinstance(n, dict) and n.get("id") is not None and _hashable(n.get("id"))
-    }
-    return [
-        candidate
-        for he in hyperedges
-        if (candidate := canonical_hyperedge(he, node_ids)) is not None
-    ]
+    kept, _dropped = gate_hyperedges(hyperedges, nodes)
+    return kept
 
 
 def _reconcile_existing_graph(

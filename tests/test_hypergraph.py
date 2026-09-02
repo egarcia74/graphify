@@ -7,7 +7,13 @@ from pathlib import Path
 import networkx as nx
 import pytest
 
-from graphify.build import MIN_HYPEREDGE_MEMBERS, build_from_json, canonical_hyperedge
+from graphify.build import (
+    MIN_HYPEREDGE_MEMBERS,
+    build_from_json,
+    canonical_hyperedge,
+    gate_hyperedges,
+    node_id_set,
+)
 from graphify.export import attach_hyperedges, to_json
 from graphify.report import generate
 
@@ -376,10 +382,63 @@ def test_to_json_gates_hyperedges_written_by_a_direct_caller(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 2c. node_id_set / gate_hyperedges — the reusable pair the writers share
+# ---------------------------------------------------------------------------
+
+def test_node_id_set_skips_ids_that_cannot_be_members():
+    """An id-less node contributes nothing, and an unhashable id must be skipped
+    rather than poisoning the set (`None` would let a null member count) or
+    raising (a persisted list/dict id is deliberately left for the validator)."""
+    nodes = [
+        {"id": "a"}, {"id": "b"},
+        {"label": "no id at all"},
+        {"id": None},
+        {"id": ["malformed", "list"]},
+        {"id": {"also": "malformed"}},
+        "not-a-dict",
+    ]
+    assert node_id_set(nodes) == {"a", "b"}
+
+
+def test_gate_hyperedges_without_a_node_list_checks_shape_only():
+    """The pre-stamp and cache callers have no node set: members are not checked
+    for membership, only the group's shape and distinct cardinality."""
+    kept, dropped = gate_hyperedges([
+        {"id": "ghosts", "nodes": ["nope_a", "nope_b", "nope_c"]},
+        {"id": "pair", "nodes": ["a", "b"]},
+    ])
+    assert [h["id"] for h in kept] == ["ghosts"]
+    assert dropped == 1
+
+
+def test_gate_hyperedges_filters_against_the_given_nodes():
+    """The writer callers pass the node list about to be persisted."""
+    nodes = [{"id": n} for n in ("a", "b", "c")]
+    kept, dropped = gate_hyperedges([
+        {"id": "ok", "nodes": ["a", "b", "c"]},
+        {"id": "dangling", "nodes": ["a", "b", "ghost"]},
+        {"id": "alias", "members": ["a", "b", "c"]},
+    ], nodes)
+    assert [h["id"] for h in kept] == ["ok", "alias"]
+    assert kept[1]["nodes"] == ["a", "b", "c"], "alias folded onto nodes"
+    assert dropped == 1
+
+
+def test_gate_hyperedges_reports_the_drop_count_for_the_caller_message():
+    """Callers word their own stderr line, so the count comes back rather than
+    being printed here — the three writers say different things."""
+    assert gate_hyperedges([], None) == ([], 0)
+    assert gate_hyperedges(None, None) == ([], 0)
+    _, dropped = gate_hyperedges([{"id": "p", "nodes": ["a", "b"]}], None)
+    assert dropped == 1
+
+
+# ---------------------------------------------------------------------------
 # 3. to_json includes hyperedges key
 # ---------------------------------------------------------------------------
 
 def test_to_json_includes_hyperedges():
+    """to_json writes the hyperedge set into graph.json."""
     G = build_from_json(SAMPLE_EXTRACTION)
     communities = {0: list(G.nodes())}
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
@@ -392,6 +451,7 @@ def test_to_json_includes_hyperedges():
 
 
 def test_to_json_hyperedges_empty_when_none():
+    """With no hyperedges the written key is an empty list."""
     extraction = {**SAMPLE_EXTRACTION, "hyperedges": []}
     G = build_from_json(extraction)
     communities = {0: list(G.nodes())}

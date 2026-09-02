@@ -102,6 +102,46 @@ def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
     return he if _has_minimum_hyperedge_members(he) else None
 
 
+def node_id_set(nodes: object) -> set:
+    """Collect the ids from *nodes* that a hyperedge member could name.
+
+    An id-less node contributes nothing. An unhashable id is skipped rather than
+    added: a persisted ``list``/``dict`` id is deliberately tolerated by the
+    build path for the validator to report, and putting one in a set raises;
+    ``None`` is skipped for the same reason it is not a usable member — it would
+    let a null member count towards the minimum.
+    """
+    return {
+        n["id"] for n in (nodes or ())
+        if isinstance(n, dict) and n.get("id") is not None and _hashable(n.get("id"))
+    }
+
+
+def gate_hyperedges(
+    hyperedges: object, nodes: object = None,
+) -> "tuple[list[dict], int]":
+    """Canonicalize *hyperedges*, returning the survivors and how many were cut.
+
+    The shared shape of every writer's gate. Pass the node list about to be
+    persisted to filter members by membership; pass None where no node set
+    exists — the semantic cache stores per-file fragments, and the
+    pre-manifest-stamp gate runs before the final node set is known — in which
+    case only shape and distinct cardinality are checked.
+
+    Returns the count rather than logging, because the callers word their own
+    messages: the raw writer, the exclusion-only prune and the pre-stamp gate
+    each say something different about what the drop means.
+    """
+    incoming = list(hyperedges or ())
+    node_ids = node_id_set(nodes) if nodes is not None else None
+    kept = [
+        candidate
+        for he in incoming
+        if (candidate := canonical_hyperedge(he, node_ids)) is not None
+    ]
+    return kept, len(incoming) - len(kept)
+
+
 def _is_ast_tier(item: dict) -> bool:
     """AST vs semantic tier. _origin wins when present; unstamped legacy items
     (pre-0.9.16) fall back to shape: deterministic extractors emit

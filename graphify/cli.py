@@ -580,6 +580,23 @@ def _zero_node_stamped_semantic_sources(
     return healed
 
 
+def _gate_hyperedges(hyperedges: object, nodes: object = None) -> "tuple[list, int]":
+    """Canonicalize *hyperedges*, returning the survivors and the drop count.
+
+    A thin module-level seam over :func:`graphify.build.gate_hyperedges`, for two
+    reasons. It keeps the gate's fan-out off ``dispatch_command`` — which is
+    already thousands of lines and every writer in it would otherwise add its
+    own import alias — and it keeps the ``graphify.build`` import function-local,
+    since ``cli`` deliberately imports only ``graphify.paths`` at module scope so
+    ``graphify install`` works before networkx is present.
+
+    Pass the node list about to be written to filter members by membership; omit
+    it where no node set exists yet (the pre-manifest-stamp gate).
+    """
+    from graphify.build import gate_hyperedges as _gate
+    return _gate(hyperedges, nodes)
+
+
 def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int:
     """Drop nodes/edges/hyperedges owned by ``stale_sources`` from graph.json
     in place. Returns the number of nodes removed.
@@ -638,26 +655,14 @@ def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int
     if not isinstance(raw_hyper, list):
         nested_hyper = (data.get("graph") or {}).get("hyperedges")
         raw_hyper = nested_hyper if isinstance(nested_hyper, list) else []
-    from graphify.build import (
-        MIN_HYPEREDGE_MEMBERS as _MIN_HE,
-        _hashable as _is_hashable,
-        canonical_hyperedge as _canonical_he,
+    # gate_hyperedges collects the surviving ids for us, skipping the id-less
+    # and malformed-id nodes this path keeps (unlike the raw --no-cluster path,
+    # where dedupe_nodes has already dropped them) — either would otherwise let
+    # a null member count or abort the prune outright.
+    kept_hyper, _ = _gate_hyperedges(
+        [h for h in raw_hyper if isinstance(h, dict) and h.get("source_file") not in stale],
+        kept_nodes,
     )
-    # Filter None explicitly: unlike the raw --no-cluster path (where
-    # dedupe_nodes has already stripped id-less nodes) this function keeps them,
-    # so an unfiltered set would contain None and let a null member count
-    # towards the minimum. Skip unhashable ids too — a persisted node can carry
-    # a malformed list/dict id, which the build path deliberately leaves for the
-    # validator to report, and putting one in a set aborts this whole prune.
-    kept_ids = {
-        n["id"] for n in kept_nodes
-        if n.get("id") is not None and _is_hashable(n.get("id"))
-    }
-    kept_hyper = [
-        c for h in raw_hyper
-        if isinstance(h, dict) and h.get("source_file") not in stale
-        and (c := _canonical_he(h, kept_ids)) is not None
-    ]
     # The nested slot has to be part of the change test, not just the write.
     # The pre-revalidation pruner filtered only the top-level list, so an
     # upgraded graph.json can carry a stale nested copy of a group the top level
@@ -680,8 +685,8 @@ def _prune_graph_json_sources(graph_path: Path, stale_sources: list[str]) -> int
         # when only a stale nested copy needed reconciling.
         print(
             f"[graphify extract] rewrote {len(kept_hyper)} hyperedge(s) in "
-            f"{graph_path.name} ({len(raw_hyper) - len(kept_hyper)} dropped below "
-            f"{_MIN_HE} surviving members).",
+            f"{graph_path.name} ({len(raw_hyper) - len(kept_hyper)} dropped "
+            f"below the minimum surviving members).",
             file=sys.stderr,
         )
     data["nodes"] = kept_nodes
@@ -4141,19 +4146,16 @@ def dispatch_command(cmd: str) -> None:
         # heal to notice a run later. Shape and cardinality only — membership
         # needs the final node set, so it stays with build_from_json and the
         # raw --no-cluster gate below.
-        from graphify.build import canonical_hyperedge as _canonical_he_early
-        _sem_hes = sem_result.get("hyperedges") or []
-        _kept_sem_hes = [
-            c for _he in _sem_hes if (c := _canonical_he_early(_he)) is not None
-        ]
-        if len(_kept_sem_hes) != len(_sem_hes):
+        sem_result["hyperedges"], _dropped_sem_hes = _gate_hyperedges(
+            sem_result.get("hyperedges")
+        )
+        if _dropped_sem_hes:
             print(
-                f"[graphify extract] dropped {len(_sem_hes) - len(_kept_sem_hes)} "
-                f"semantic hyperedge(s) that are not group relationships, "
-                f"before manifest stamping.",
+                f"[graphify extract] dropped {_dropped_sem_hes} semantic "
+                f"hyperedge(s) that are not group relationships, before "
+                f"manifest stamping.",
                 file=sys.stderr,
             )
-        sem_result["hyperedges"] = _kept_sem_hes
 
         # Merge AST + semantic + pg_result + cargo_result. Order matters for deduplication: passing AST
         # first means semantic node attributes win on collision (richer labels
@@ -4339,27 +4341,16 @@ def dispatch_command(cmd: str) -> None:
             # through replace/prune, so a deleted source leaves a cross-file
             # group naming a node that is no longer here. Gate on the final
             # (post-dedupe) node ids, the same set about to be written.
-            from graphify.build import (
-                MIN_HYPEREDGE_MEMBERS as _MIN_HE,
-                canonical_hyperedge as _canonical_he,
+            merged["hyperedges"], _dropped_raw_hes = _gate_hyperedges(
+                merged.get("hyperedges"), merged["nodes"],
             )
-            _raw_hes = merged.get("hyperedges") or []
-            # Build the id set ONCE — inlining it in the comprehension below
-            # would rebuild it per hyperedge. _dedupe_nodes above has already
-            # dropped id-less nodes, so no None can land in here.
-            _merged_ids = {n["id"] for n in merged["nodes"] if isinstance(n, dict) and n.get("id") is not None}
-            _kept_hes = [
-                c for _he in _raw_hes
-                if (c := _canonical_he(_he, _merged_ids)) is not None
-            ]
-            if len(_kept_hes) != len(_raw_hes):
+            if _dropped_raw_hes:
                 print(
-                    f"[graphify extract] dropped {len(_raw_hes) - len(_kept_hes)} "
-                    f"hyperedge(s) with fewer than {_MIN_HE} surviving members "
-                    f"from the raw graph.",
+                    f"[graphify extract] dropped {_dropped_raw_hes} hyperedge(s) "
+                    f"with fewer than the minimum surviving members from the "
+                    f"raw graph.",
                     file=sys.stderr,
                 )
-            merged["hyperedges"] = _kept_hes
             # RT-parity for the raw path: an incomplete build must not force a
             # partial graph over a larger complete one here either. The clustered
             # path gets this from to_json's #479 guard; this path never calls
