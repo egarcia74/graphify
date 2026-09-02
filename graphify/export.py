@@ -281,6 +281,13 @@ def existing_graph_node_count(path: "str | Path"):
 
 
 def to_json(G: nx.Graph, communities: dict[int, list[str]], output_path: str, *, force: bool = False, built_at_commit: str | None = None, community_labels: dict[int, str] | None = None) -> bool:
+    """Write *G* to ``output_path`` as graph.json, returning whether it wrote.
+
+    The canonical persistence boundary: assigns communities, canonicalizes field
+    order for byte-stable diffs, gates hyperedge cardinality, and writes
+    atomically. Refuses to shrink an existing graph unless ``force`` (#479), in
+    which case it returns False without writing.
+    """
     # Safety check: refuse to silently shrink an existing graph (#479)
     existing_path = Path(output_path)
     if not force and existing_path.exists():

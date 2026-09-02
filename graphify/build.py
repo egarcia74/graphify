@@ -198,7 +198,17 @@ def _coerce_hyperedge_member_refs(he: dict, members: list) -> list:
                 )
                 continue
             ref = inner
-        elif not _hashable(ref):
+        elif not _hashable(ref) or ref in (None, ""):
+            # `None`/`""` are hashable but can never name a node, and they were
+            # padding the cardinality count: the semantic cache gate has no node
+            # set to filter members against, so a two-real-member group with a
+            # null third member was cached as valid and then dropped on replay by
+            # build_from_json's revalidation — a cache hit yielding no semantic
+            # data, with the file's manifest stamp saying it was covered. Drops
+            # them here so every consumer agrees, and so a bare `None` is treated
+            # the same as the `{"id": None}` object member above. `0` and `False`
+            # are NOT swept up: `ref in (None, "")` is equality, and a numeric id
+            # is legitimate (_coerce_non_string_ids str-coerces one elsewhere).
             print(
                 f"[graphify] WARNING: hyperedge "
                 f"'{he.get('id', '?')}' has an unusable member reference "

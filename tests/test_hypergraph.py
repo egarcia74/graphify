@@ -300,6 +300,26 @@ def test_canonical_hyperedge_rejects_a_non_dict(he):
     assert canonical_hyperedge(he) is None
 
 
+@pytest.mark.parametrize("junk", [None, ""])
+def test_canonical_hyperedge_does_not_count_an_unusable_member_id(junk):
+    """`None` and `""` can never name a node, so they must not pad the count.
+
+    They are hashable, so they used to survive member coercion — unlike the
+    equivalent object member `{"id": None}`, which was already dropped. That
+    asymmetry let a two-real-member group pass the cache gate (which has no node
+    set to filter against) and then be dropped on replay by build_from_json,
+    leaving a cache hit that yields no semantic data and never re-dispatches."""
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", junk]}) is None
+    kept = canonical_hyperedge({"id": "h", "nodes": ["a", "b", junk, "c"]})
+    assert kept["nodes"] == ["a", "b", "c"]
+
+
+def test_canonical_hyperedge_keeps_a_numeric_member():
+    """A numeric id is legitimate — _coerce_non_string_ids str-coerces it
+    elsewhere — so it must not be swept up with the unusable refs."""
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", 7]})["nodes"] == ["a", "b", 7]
+
+
 def test_canonical_hyperedge_keeps_a_group_exactly_at_the_minimum():
     """The threshold is inclusive — MIN_HYPEREDGE_MEMBERS distinct members pass."""
     members = [f"n{i}" for i in range(MIN_HYPEREDGE_MEMBERS)]
@@ -397,6 +417,7 @@ def _make_report(G):
 
 
 def test_report_includes_hyperedges_section():
+    """A non-empty hyperedge set renders a hyperedges section in the report."""
     G = build_from_json(SAMPLE_EXTRACTION)
     report = _make_report(G)
     assert "## Hyperedges (group relationships)" in report

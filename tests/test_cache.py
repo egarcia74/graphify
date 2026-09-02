@@ -1473,6 +1473,23 @@ def test_save_semantic_cache_merge_existing_heals_legacy_alias_entry(tmp_path):
     assert cached["hyperedges"][0]["nodes"] == ["a", "b", "c"]
 
 
+def test_save_semantic_cache_does_not_cache_a_group_padded_by_a_null_member(tmp_path):
+    """The cache has no node set, so it cannot filter members by membership — but
+    `None`/`""` can never name a node in any graph. Counting them would cache a
+    two-real-member group that build_from_json drops on replay, leaving a cache
+    hit that produces no semantic data and a file that is never re-dispatched."""
+    from graphify.cache import load_cached, save_semantic_cache
+
+    doc = tmp_path / "doc.md"
+    doc.write_text("# Doc\n")
+    nodes = [{"id": nid, "source_file": "doc.md"} for nid in ("a", "b")]
+    hyperedges = [{"id": "padded", "nodes": ["a", "b", None], "source_file": "doc.md"}]
+
+    assert save_semantic_cache(nodes, [], hyperedges, root=tmp_path) == 1
+    cached = load_cached(doc, root=tmp_path, kind="semantic")
+    assert cached["hyperedges"] == []
+
+
 def test_save_semantic_cache_merge_existing_prunes_only_incoming(tmp_path):
     """#1916 + #1715: with merge_existing=True (the llm.py checkpoint path),
     only the INCOMING slice is pruned before the union — the prior cached

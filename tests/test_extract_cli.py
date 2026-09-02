@@ -774,9 +774,13 @@ def test_missing_manifest_code_only_preserves_semantic_layer(monkeypatch, tmp_pa
     _run_extract(monkeypatch, ["graphify", "extract", str(corpus),
                                "--code-only", "--out", str(out_dir)])
     after = json.loads(graph_path.read_text())
-    assert _sem_doc_count(after) >= 2, (
+    # All THREE seeded nodes must survive, not merely two: the committed
+    # hyperedge below names every one of them, so losing `doc_readme_c` would
+    # take h1 under the minimum cardinality as well.
+    _survivors = {n["id"] for n in after["nodes"] if n.get("source_file") == "README.md"}
+    assert {"doc_readme_a", "doc_readme_b", "doc_readme_c"} <= _survivors, (
         "committed semantic doc nodes must survive a missing-manifest "
-        f"--code-only rebuild (#1925); got {_sem_doc_count(after)}"
+        f"--code-only rebuild (#1925); got {sorted(_survivors)}"
     )
     assert any(h.get("id") == "h1" for h in after.get("hyperedges", [])), (
         "committed hyperedge must survive the rebuild"

@@ -42,6 +42,7 @@ def test_to_json_nodes_have_community():
 
 
 def test_to_json_sorts_graph_collections_across_insertion_order(tmp_path):
+    """Insertion order must not change the bytes: nodes, links and hyperedges are all sorted."""
     import networkx as nx
 
     nodes = [("b", {"label": "Beta"}), ("a", {"label": "Alpha"}), ("c", {"label": "Gamma"})]
