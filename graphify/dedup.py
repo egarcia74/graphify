@@ -551,6 +551,10 @@ def deduplicate_entities(
         )
 
     if len(nodes) <= 1:
+        # Nothing to merge, but the hyperedge contract still holds: the
+        # cardinality cleanup must not depend on whether a remap happened.
+        if hyperedges:
+            _remap_hyperedge_members(hyperedges, {})
         return nodes, edges
 
     # Resolve the scan root once: _collision_rank ranks each node's source_file
@@ -822,6 +826,10 @@ def deduplicate_entities(
 
     # ── apply remap ───────────────────────────────────────────────────────────
     if not remap:
+        # No merges — still run the hyperedge pass (dedupe + minimum cardinality)
+        # so a direct caller gets the same cleanup on every return path.
+        if hyperedges:
+            _remap_hyperedge_members(hyperedges, {})
         return unique_nodes, edges
 
     total = len(remap)

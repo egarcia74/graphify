@@ -192,6 +192,27 @@ def test_attach_hyperedges_drops_legacy_two_member_entries():
     assert [he["id"] for he in G.graph["hyperedges"]] == ["valid_group"]
 
 
+def test_attach_hyperedges_canonicalizes_members_before_validating():
+    """merge-graphs feeds persisted hyperedge metadata straight through this
+    boundary with no build_from_json in between (#1561 alias fold never ran), so
+    the member gate must canonicalize first: an alias-keyed group and one with
+    object-shaped members are both valid three-member hyperedges, not junk to
+    drop. The caller's dicts are left untouched."""
+    G = nx.Graph()
+    G.add_nodes_from(["a", "b", "c"])
+    alias_shaped = {"id": "alias_group", "members": ["a", "b", "c"]}
+    object_shaped = {"id": "object_group", "nodes": [{"id": "a"}, "b", "c"]}
+
+    attach_hyperedges(G, [alias_shaped, object_shaped])
+
+    attached = {he["id"]: he for he in G.graph["hyperedges"]}
+    assert set(attached) == {"alias_group", "object_group"}
+    assert attached["alias_group"]["nodes"] == ["a", "b", "c"]
+    assert "members" not in attached["alias_group"]
+    assert attached["object_group"]["nodes"] == ["a", "b", "c"]
+    assert alias_shaped == {"id": "alias_group", "members": ["a", "b", "c"]}
+
+
 # ---------------------------------------------------------------------------
 # 3. to_json includes hyperedges key
 # ---------------------------------------------------------------------------

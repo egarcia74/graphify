@@ -14,7 +14,7 @@ which is why they do not cover this.
 import pytest
 
 from graphify.build import build
-from graphify.dedup import _remap_hyperedge_members
+from graphify.dedup import _remap_hyperedge_members, deduplicate_entities
 
 
 def _node(nid, label):
@@ -171,4 +171,34 @@ def test_a_hyperedge_collapsing_to_one_member_is_dropped():
     """A deduplicated singleton is no longer a group relationship."""
     hes = [{"id": "h", "nodes": ["a_old", "a_new"]}]
     _remap_hyperedge_members(hes, {"a_old": "a", "a_new": "a"})
+    assert hes == []
+
+
+# ---------------------------------------------------------------------------
+# deduplicate_entities(..., hyperedges=) must clean up on EVERY return path
+# ---------------------------------------------------------------------------
+
+_DISTINCT_NODES = [
+    _node("alpha_concept_long_variant_id", "alpha concept"),
+    _node("beta_node", "Beta"),
+    _node("gamma_node", "Gamma"),
+]
+
+
+def test_a_pair_is_dropped_even_when_dedup_merges_nothing():
+    """The cardinality cleanup must not depend on whether a merge happened: with
+    an empty remap the early return used to skip _remap_hyperedge_members, so a
+    direct caller kept a two-member "group" that every other path rejects."""
+    hes = [
+        {"id": "pair", "nodes": ["alpha_concept_long_variant_id", "beta_node"]},
+        {"id": "trio", "nodes": ["alpha_concept_long_variant_id", "beta_node", "gamma_node"]},
+    ]
+    deduplicate_entities(list(_DISTINCT_NODES), [], communities={}, hyperedges=hes)
+    assert [h["id"] for h in hes] == ["trio"]
+
+
+def test_a_pair_is_dropped_on_the_single_node_short_circuit():
+    """Same contract on the other early return (nothing to dedup with one node)."""
+    hes = [{"id": "pair", "nodes": ["beta_node", "gamma_node"]}]
+    deduplicate_entities([_node("beta_node", "Beta")], [], communities={}, hyperedges=hes)
     assert hes == []
