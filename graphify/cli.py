@@ -4296,9 +4296,13 @@ def dispatch_command(cmd: str) -> None:
                 canonical_hyperedge as _canonical_he,
             )
             _raw_hes = merged.get("hyperedges") or []
+            # Build the id set ONCE — inlining it in the comprehension below
+            # would rebuild it per hyperedge. _dedupe_nodes above has already
+            # dropped id-less nodes, so no None can land in here.
+            _merged_ids = {n["id"] for n in merged["nodes"] if isinstance(n, dict) and n.get("id") is not None}
             _kept_hes = [
                 c for _he in _raw_hes
-                if (c := _canonical_he(_he, {n.get("id") for n in merged["nodes"] if isinstance(n, dict)})) is not None
+                if (c := _canonical_he(_he, _merged_ids)) is not None
             ]
             if len(_kept_hes) != len(_raw_hes):
                 print(

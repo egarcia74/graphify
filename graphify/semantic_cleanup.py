@@ -184,9 +184,9 @@ def sanitize_semantic_fragment(fragment: dict) -> dict:
        they're explicitly marked as rationale.
     3. Strips nodes whose only distinguishing field is the label itself
        (empty id — likely LLM hallucination).
-     4. Filters hyperedges so they cannot reference removed or unknown node
-         IDs after the cleanup passes above. A hyperedge with fewer than three
-         surviving members is dropped.
+    4. Filters hyperedges so they cannot reference removed or unknown node
+       IDs after the cleanup passes above. A hyperedge with fewer than three
+       surviving members is dropped.
 
     Returns the same dict for convenience.
     """
