@@ -1376,12 +1376,19 @@ def test_prune_graph_json_sources_tolerates_a_null_hyperedges_slot(tmp_path):
 
     graph_path = tmp_path / "graph.json"
     graph_path.write_text(json.dumps({
-        "nodes": [{"id": "a", "source_file": "live.py"}],
+        # A node that really is pruned, so the null slot is carried through the
+        # rewrite (and the nested-slot sync) rather than short-circuiting at the
+        # nothing-changed check.
+        "nodes": [{"id": "a", "source_file": "live.py"},
+                  {"id": "gone", "source_file": "stale.py"}],
         "edges": [],
         "hyperedges": None,
     }), encoding="utf-8")
 
-    assert _prune_graph_json_sources(graph_path, ["stale.py"]) == 0
+    assert _prune_graph_json_sources(graph_path, ["stale.py"]) == 1
+    data = _read_graph(graph_path)
+    assert [n["id"] for n in data["nodes"]] == ["a"]
+    assert data["hyperedges"] == [], "the null slot is healed to an empty list, not left null"
 
 
 def test_prune_graph_json_sources_does_not_count_an_id_less_node_as_a_member(tmp_path):
