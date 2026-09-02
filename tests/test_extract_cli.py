@@ -560,6 +560,86 @@ def test_under_cardinality_hyperedge_only_doc_is_not_stamped(monkeypatch, tmp_pa
     )
 
 
+def test_dangling_member_hyperedge_only_doc_stamps_then_re_queues_from_cache(
+    monkeypatch, tmp_path, capsys
+):
+    """Pins the accepted recovery path for a group that passes shape and
+    cardinality but whose members resolve to nothing.
+
+    Membership cannot be checked before stamping — build_from_json resolves
+    members afterwards through _semantic_id_remap and norm_to_id, so gating on
+    raw ids would re-dispatch docs whose groups actually survive. The doc is
+    therefore stamped on the strength of a group the graph later drops.
+
+    What follows is worth knowing, and is NOT the clean one-run recovery it
+    looks like: the #2927 heal does re-queue the doc on the next run, but the
+    group was already cached (the cache has no node set to reject it with), so
+    the re-queue is satisfied from cache, the group is dropped again and the doc
+    is re-stamped. The heal therefore re-fires every run without resolving.
+    Costs no LLM call and puts no bad data in graph.json — but it does not
+    self-heal either. Breaking the loop needs a design change, not a gate.
+    """
+    import json
+
+    corpus = _make_corpus(tmp_path)  # main.go + README.md
+    out_dir = tmp_path / "out"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake-key")
+    calls: list = []
+
+    def _dangling_group(paths, **kwargs):
+        """Return one three-member group whose members exist nowhere."""
+        calls.append(1)
+        on_chunk = kwargs.get("on_chunk_done")
+        if on_chunk:
+            on_chunk(0, 1, {"nodes": [], "edges": [], "hyperedges": []})
+        return {
+            "nodes": [],
+            "edges": [],
+            "hyperedges": [{"id": "ghost", "label": "G",
+                            "nodes": ["nope_a", "nope_b", "nope_c"],
+                            "relation": "participate_in", "source_file": "README.md"}],
+            "input_tokens": 1,
+            "output_tokens": 1,
+        }
+
+    monkeypatch.setattr("graphify.llm.extract_corpus_parallel", _dangling_group)
+    monkeypatch.setattr(mainmod, "_check_skill_version", lambda _: None)
+    monkeypatch.setattr(
+        mainmod.sys, "argv",
+        ["graphify", "extract", str(corpus), "--backend", "claude",
+         "--no-cluster", "--out", str(out_dir)],
+    )
+
+    def _run():
+        try:
+            mainmod.main()
+        except SystemExit as exc:
+            assert exc.code in (None, 0), f"unexpected exit code {exc.code}"
+        return capsys.readouterr()
+
+    graphify_out = out_dir / "graphify-out"
+    _run()
+    manifest = json.loads((graphify_out / "manifest.json").read_text())
+    graph = json.loads((graphify_out / "graph.json").read_text())
+    assert manifest.get("README.md", {}).get("semantic_hash"), (
+        "the group passes shape + cardinality, so #1920 stamps the doc"
+    )
+    assert graph["hyperedges"] == [], "the graph gate drops it: no member resolves"
+    assert calls == [1], "one extraction so far"
+
+    out2 = _run()
+    assert "#2927" in out2.out, "the heal must notice the stamped-but-empty source"
+    assert calls == [1], (
+        "the re-queue is served from cache, not re-extracted — no LLM call"
+    )
+    graph2 = json.loads((graphify_out / "graph.json").read_text())
+    manifest2 = json.loads((graphify_out / "manifest.json").read_text())
+    assert graph2["hyperedges"] == [], "still dropped on replay"
+    assert manifest2.get("README.md", {}).get("semantic_hash"), (
+        "and re-stamped, so the heal re-fires next run without resolving"
+    )
+
+
 # --- #1894: --force and deep-mode dispatch over a warm cache -----------------
 
 def _recording_extractor(calls):
