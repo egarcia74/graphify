@@ -782,8 +782,12 @@ def test_missing_manifest_code_only_preserves_semantic_layer(monkeypatch, tmp_pa
         "committed semantic doc nodes must survive a missing-manifest "
         f"--code-only rebuild (#1925); got {sorted(_survivors)}"
     )
-    assert any(h.get("id") == "h1" for h in after.get("hyperedges", [])), (
-        "committed hyperedge must survive the rebuild"
+    _h1 = next((h for h in after.get("hyperedges", []) if h.get("id") == "h1"), None)
+    assert _h1 is not None, "committed hyperedge must survive the rebuild"
+    # Assert the membership directly rather than inferring it from the group
+    # having survived at all: that inference only holds while the minimum is 3.
+    assert set(_h1["nodes"]) == {"doc_readme_a", "doc_readme_b", "doc_readme_c"}, (
+        f"h1 must keep every committed member; got {_h1['nodes']}"
     )
     assert any("keep" in n["id"] for n in after["nodes"]), "code nodes intact"
 
