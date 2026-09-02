@@ -4115,6 +4115,28 @@ def dispatch_command(cmd: str) -> None:
             print(f"[graphify extract] Cargo: {len(cargo_result['nodes'])} nodes, "
                   f"{len(cargo_result['edges'])} edges")
 
+        # Drop hyperedges that can never become a group BEFORE the merge and
+        # before manifest stamping. _stamped_manifest_files counts a hyperedge
+        # as output for its source file (#1920), so a doc whose only result was
+        # an under-cardinality group would be stamped as successfully extracted
+        # and then contribute nothing to graph.json, leaving the #2927 graph
+        # heal to notice a run later. Shape and cardinality only — membership
+        # needs the final node set, so it stays with build_from_json and the
+        # raw --no-cluster gate below.
+        from graphify.build import canonical_hyperedge as _canonical_he_early
+        _sem_hes = sem_result.get("hyperedges") or []
+        _kept_sem_hes = [
+            c for _he in _sem_hes if (c := _canonical_he_early(_he)) is not None
+        ]
+        if len(_kept_sem_hes) != len(_sem_hes):
+            print(
+                f"[graphify extract] dropped {len(_sem_hes) - len(_kept_sem_hes)} "
+                f"semantic hyperedge(s) that are not group relationships; their "
+                f"source files stay unstamped for the next run.",
+                file=sys.stderr,
+            )
+        sem_result["hyperedges"] = _kept_sem_hes
+
         # Merge AST + semantic + pg_result + cargo_result. Order matters for deduplication: passing AST
         # first means semantic node attributes win on collision (richer labels
         # for symbols also referenced in docs). Hyperedges only come from the

@@ -2207,6 +2207,13 @@ def prefix_graph_for_global(
         for he in hyperedges:
             if isinstance(he, dict):
                 he = dict(he)
+                # Canonicalize BEFORE mapping through relabel (#1561): only a
+                # canonical `nodes` list of scalar ids can be prefixed. An
+                # alias-keyed (`members`/`node_ids`) or object-member group
+                # would otherwise keep its unprefixed ids while every node gains
+                # the `repo::` prefix, and the attach boundary downstream then
+                # discards the whole group for having no member backed by a node.
+                _normalize_hyperedge_members(he)
                 if isinstance(he.get("nodes"), list):
                     he["nodes"] = [
                         relabel.get(m, m) if _hashable(m) else m

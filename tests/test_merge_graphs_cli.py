@@ -254,6 +254,32 @@ def test_merge_graphs_reads_top_level_only_hyperedges(tmp_path):
 
 
 
+def test_merge_graphs_prefixes_alias_and_object_shaped_members(tmp_path):
+    """A member list is prefixed only once it is canonical, so the fold has to
+    happen BEFORE prefixing. Otherwise an alias-keyed (`members`) or
+    object-shaped (`{"id": ...}`) group keeps unprefixed member ids while every
+    node gains a `repo::` prefix, and the attach boundary then discards the
+    whole group for having no member backed by a node."""
+    a = tmp_path / "alpha" / "graphify-out" / "graph.json"
+    b = tmp_path / "beta" / "graphify-out" / "graph.json"
+    _write_with_hyperedges(a, ["x", "y", "z"], [
+        {"id": "h_alias", "members": ["x", "y", "z"]},
+        {"id": "h_objects", "nodes": [{"id": "x"}, {"id": "y"}, {"id": "z"}]},
+    ])
+    _write_with_hyperedges(b, ["p", "q", "r"], [{"id": "h_beta", "nodes": ["p", "q", "r"]}])
+    out = tmp_path / "merged.json"
+
+    r = _run(["merge-graphs", str(a), str(b), "--out", str(out)], tmp_path)
+    assert r.returncode == 0, r.stderr
+    data = json.loads(out.read_text())
+    hes = {h["id"]: h for h in data["hyperedges"]}
+    assert set(hes) == {"alpha::h_alias", "alpha::h_objects", "beta::h_beta"}, (
+        f"no group may be lost to its member shape; got {sorted(hes)}"
+    )
+    assert hes["alpha::h_alias"]["nodes"] == ["alpha::x", "alpha::y", "alpha::z"]
+    assert hes["alpha::h_objects"]["nodes"] == ["alpha::x", "alpha::y", "alpha::z"]
+
+
 def _write_with_communities(p: Path, nodes):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({

@@ -515,6 +515,51 @@ def test_manifest_stamps_hyperedge_only_docs(monkeypatch, tmp_path):
     )
 
 
+def test_under_cardinality_hyperedge_only_doc_is_not_stamped(monkeypatch, tmp_path):
+    """#1920 stamps a doc whose only output is a hyperedge — but only if that
+    hyperedge is a real group. An under-cardinality one is dropped before it
+    reaches graph.json, so stamping the doc would mark it successfully extracted
+    while contributing nothing, and only the #2927 graph heal could later notice
+    and re-queue it. Don't stamp it in the first place."""
+    import json
+
+    corpus = _make_corpus(tmp_path)  # main.go + README.md
+    out_dir = tmp_path / "out"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake-key")
+
+    def _pair_only(paths, **kwargs):
+        """Return a single two-member group for README.md and nothing else."""
+        on_chunk = kwargs.get("on_chunk_done")
+        if on_chunk:
+            on_chunk(0, 1, {"nodes": [], "edges": [], "hyperedges": []})
+        return {
+            "nodes": [],
+            "edges": [],
+            "hyperedges": [{"id": "pair", "label": "Pair", "nodes": ["a", "b"],
+                            "relation": "participate_in", "source_file": "README.md"}],
+            "input_tokens": 10,
+            "output_tokens": 5,
+        }
+
+    monkeypatch.setattr("graphify.llm.extract_corpus_parallel", _pair_only)
+    monkeypatch.setattr(mainmod, "_check_skill_version", lambda _: None)
+    monkeypatch.setattr(
+        mainmod.sys, "argv",
+        ["graphify", "extract", str(corpus), "--backend", "claude",
+         "--no-cluster", "--out", str(out_dir)],
+    )
+    try:
+        mainmod.main()
+    except SystemExit as exc:
+        assert exc.code in (None, 0), f"unexpected exit code {exc.code}"
+
+    manifest = json.loads((out_dir / "graphify-out" / "manifest.json").read_text())
+    assert not manifest.get("README.md", {}).get("semantic_hash"), (
+        "a doc whose only output was dropped as under-cardinality must stay "
+        "unstamped so the next run re-dispatches it"
+    )
+
+
 # --- #1894: --force and deep-mode dispatch over a warm cache -----------------
 
 def _recording_extractor(calls):
@@ -741,6 +786,7 @@ def test_missing_manifest_code_only_preserves_semantic_layer(monkeypatch, tmp_pa
     monkeypatch.setattr(mainmod, "_check_skill_version", lambda _: None)
 
     def _sem_doc_count(g):
+        """Count the graph's nodes attributed to README.md."""
         return sum(1 for n in g["nodes"] if n.get("source_file") == "README.md")
 
     # 1) seed a code-only graph
