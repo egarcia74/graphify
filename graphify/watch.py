@@ -714,6 +714,30 @@ def _reconcile_markdown_links(
     return preserved_edges
 
 
+def _gated_hyperedges(hyperedges: list, nodes: list) -> list:
+    """Canonicalize *hyperedges* against the ids present in *nodes*.
+
+    The gate every other persistence boundary applies, for watch's raw
+    ``--no-cluster`` writer — which never builds a graph and so never reaches
+    build_from_json's member revalidation or to_json's own gate. Skips id-less
+    and unhashable node ids when collecting the id set: this path keeps both
+    (only ``dedupe_nodes`` drops id-less ones, and a persisted malformed id is
+    deliberately left for the validator), and either would otherwise poison the
+    set or raise.
+    """
+    from graphify.build import _hashable, canonical_hyperedge
+
+    node_ids = {
+        n["id"] for n in nodes
+        if isinstance(n, dict) and n.get("id") is not None and _hashable(n.get("id"))
+    }
+    return [
+        candidate
+        for he in hyperedges
+        if (candidate := canonical_hyperedge(he, node_ids)) is not None
+    ]
+
+
 def _reconcile_existing_graph(
     existing_graph: Path,
     result: dict,
@@ -1775,10 +1799,22 @@ def _rebuild_code(
             # without it, --no-cluster + repeated `update` accumulate duplicates and edge
             # counts diverge across build modes (#1317).
             from graphify.build import dedupe_edges as _dedupe_edges, dedupe_nodes as _dedupe_nodes
+            _cand_nodes = _dedupe_nodes(result.get("nodes", []))
             candidate_graph_data = {
-                **{k: v for k, v in result.items() if k not in ("edges", "nodes")},
-                "nodes": _dedupe_nodes(result.get("nodes", [])),
+                **{k: v for k, v in result.items() if k not in ("edges", "nodes", "hyperedges")},
+                "nodes": _cand_nodes,
                 "links": _dedupe_edges(result.get("edges", [])),
+                # Hyperedge parity for watch's raw writer. This path never builds
+                # a graph, so it misses build_from_json's member revalidation and
+                # to_json's gate, and _reconcile_existing_graph carries an
+                # existing group forward on source eviction and dangling members
+                # alone — never cardinality. A legacy pair whose members both
+                # still exist therefore survived every `update --no-cluster`.
+                # Gate against the deduplicated candidate node ids, the set about
+                # to be written.
+                "hyperedges": _gated_hyperedges(
+                    result.get("hyperedges") or [], _cand_nodes,
+                ),
                 # Inherit the existing graph's directed flag (#2342) so
                 # `graphify update --no-cluster` can't silently drop it -
                 # `result` (the raw merged extraction) never carries one.

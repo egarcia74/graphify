@@ -330,6 +330,8 @@ def test_truncated_doc_semantic_hash_is_cleared_for_requeue(monkeypatch, tmp_pat
     monkeypatch.setattr(mainmod, "_check_skill_version", lambda _: None)
 
     def _run():
+
+        """Run the CLI once, tolerating a clean SystemExit, and return captured output."""
         monkeypatch.setattr(mainmod.sys, "argv",
                             ["graphify", "extract", str(corpus), "--backend", "claude",
                              "--no-cluster", "--out", str(out_dir)])
@@ -611,6 +613,7 @@ def test_dangling_member_hyperedge_only_doc_stamps_then_re_queues_from_cache(
     )
 
     def _run():
+        """Run the CLI once, tolerating a clean SystemExit, and return its output."""
         try:
             mainmod.main()
         except SystemExit as exc:

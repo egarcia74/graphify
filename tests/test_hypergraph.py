@@ -301,6 +301,14 @@ def test_canonical_hyperedge_rejects_a_non_dict(he):
 
 
 @pytest.mark.parametrize("junk", [None, "", True, False])
+def test_canonical_hyperedge_rejects_an_unusable_member_id_in_object_form(junk):
+    """The bare and object member branches must apply the SAME rule. They drifted
+    twice: the object branch rejected `{"id": None}` while a bare `None` was kept,
+    and then the reverse once booleans were added to the bare branch only."""
+    assert canonical_hyperedge({"id": "h", "nodes": ["a", "b", {"id": junk}]}) is None
+
+
+@pytest.mark.parametrize("junk", [None, "", True, False])
 def test_canonical_hyperedge_does_not_count_an_unusable_member_id(junk):
     """`None` and `""` can never name a node, so they must not pad the count.
 
@@ -412,6 +420,8 @@ def test_hyperedges_roundtrip_via_json_file():
 # ---------------------------------------------------------------------------
 
 def _make_report(G):
+
+    """Render a report for *G* with every node in one community."""
     communities = {0: list(G.nodes())}
     cohesion = {0: 1.0}
     labels = {0: "All"}
@@ -430,6 +440,9 @@ def test_report_includes_hyperedges_section():
 
 
 def test_report_includes_hyperedge_node_list():
+
+
+    """The hyperedges section lists each group's member ids."""
     G = build_from_json(SAMPLE_EXTRACTION)
     report = _make_report(G)
     # Node IDs should appear in the report line

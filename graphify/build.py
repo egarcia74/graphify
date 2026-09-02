@@ -171,6 +171,32 @@ _FILE_TYPE_SYNONYMS = {
 _HE_MEMBER_ALIASES = ("members", "node_ids")
 
 
+def _is_usable_member_ref(value: object) -> bool:
+    """Whether *value* could name a graph node, so may count towards cardinality.
+
+    One rule for both member shapes. The bare and object branches of
+    ``_coerce_hyperedge_member_refs`` each had their own copy and drifted twice —
+    the object branch rejected ``{"id": None}`` while a bare ``None`` was kept,
+    then the reverse once booleans were rejected in the bare branch only. Each
+    time, an unusable ref padded the count: the semantic cache has no node set to
+    filter members against, so a two-real-member group with a junk third member
+    was cached and stamped as valid, then dropped on replay by the graph-backed
+    revalidation — a cache hit yielding nothing for a file marked as covered.
+
+    Unhashable values cannot be compared against a node set at all. ``None`` and
+    ``""`` name nothing. Booleans are excluded for the reason ``_coerce_id``
+    already refuses to str-coerce them: ``True`` is not a number the model meant
+    as an id. A genuine numeric id survives — ``_coerce_id`` turns 7 into "7" and
+    0 into "0" — and the explicit ``bool`` test keeps ``0``/``1`` out of that
+    case despite ``bool`` subclassing ``int``.
+    """
+    return (
+        _hashable(value)
+        and value not in (None, "")
+        and not isinstance(value, bool)
+    )
+
+
 def _coerce_hyperedge_member_refs(he: dict, members: list) -> list:
     """Coerce a hyperedge member list to hashable scalar ids, deduped in order.
 
@@ -189,7 +215,7 @@ def _coerce_hyperedge_member_refs(he: dict, members: list) -> list:
     for ref in members:
         if isinstance(ref, dict):
             inner = _coerce_id(ref.get("id"))
-            if inner in (None, "") or not _hashable(inner):
+            if not _is_usable_member_ref(inner):
                 print(
                     f"[graphify] WARNING: hyperedge "
                     f"'{he.get('id', '?')}' has a member object with no usable "
@@ -198,23 +224,8 @@ def _coerce_hyperedge_member_refs(he: dict, members: list) -> list:
                 )
                 continue
             ref = inner
-        elif not _hashable(ref) or ref in (None, "") or isinstance(ref, bool):
-            # `None`/`""` are hashable but can never name a node, and they were
-            # padding the cardinality count: the semantic cache gate has no node
-            # set to filter members against, so a two-real-member group with a
-            # null third member was cached as valid and then dropped on replay by
-            # build_from_json's revalidation — a cache hit yielding no semantic
-            # data, with the file's manifest stamp saying it was covered. Drops
-            # them here so every consumer agrees, and so a bare `None` is treated
-            # the same as the `{"id": None}` object member above.
-            #
-            # Booleans go too, for the reason `_coerce_id` already refuses to
-            # str-coerce them: `True` is not a number the model meant to name a
-            # node, so it can never match a node id, and counting it would pad
-            # the cardinality exactly as `None` did. A genuine numeric id DOES
-            # survive — `_coerce_id` turns 7 into "7" and 0 into "0" — and the
-            # `isinstance(ref, bool)` test keeps `0`/`1` out of the boolean case
-            # despite bool subclassing int.
+        elif not _is_usable_member_ref(ref):
+            # Same rule as the object branch above — see _is_usable_member_ref.
             print(
                 f"[graphify] WARNING: hyperedge "
                 f"'{he.get('id', '?')}' has an unusable member reference "
