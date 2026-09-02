@@ -27,6 +27,7 @@ def _roundtrip(G, tmp_path):
 
 
 def test_nested_only_slot_is_read_and_reexported_to_both_slots(tmp_path):
+    """A nested-only input is read and re-exported to both persistence slots (#2485)."""
     # node_link_data-only writers emit hyperedges solely under graph attrs.
     extraction = {
         "directed": True,
@@ -49,6 +50,7 @@ def test_nested_only_slot_is_read_and_reexported_to_both_slots(tmp_path):
 
 
 def test_top_level_slot_roundtrips_unchanged(tmp_path):
+    """Control arm: the canonical to_json shape still round-trips."""
     # Control arm: the canonical to_json shape keeps working as before.
     extraction = {
         "nodes": [_node("a"), _node("b"), _node("c")],

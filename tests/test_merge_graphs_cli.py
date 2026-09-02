@@ -184,6 +184,7 @@ def _write_with_hyperedges(p: Path, node_ids: list[str], hyperedges: list[dict],
 
 
 def test_merge_graphs_carries_hyperedges_from_all_inputs(tmp_path):
+    """#2484: every input's hyperedges reach the merged output with prefixed members."""
     # #2484: prefix_graph_for_global never rewrote G.graph["hyperedges"], and
     # nx.compose's dict.update graph-attr merge clobbered each prior input's
     # list, so at best the LAST graph's hyperedges survived — with stale,
@@ -214,6 +215,7 @@ def test_merge_graphs_carries_hyperedges_from_all_inputs(tmp_path):
 
 
 def test_merge_graphs_hyperedges_dedup_on_shared_prefixed_id(tmp_path):
+    """A duplicated id within an input yields one merged entry."""
     # Idempotence: a duplicated hyperedge id within an input must not produce
     # duplicate entries in the merged output (attach_hyperedges dedups by id).
     a = tmp_path / "alpha" / "graphify-out" / "graph.json"
@@ -233,6 +235,7 @@ def test_merge_graphs_hyperedges_dedup_on_shared_prefixed_id(tmp_path):
 
 
 def test_merge_graphs_reads_top_level_only_hyperedges(tmp_path):
+    """#2485: an input whose hyperedges live only at the top level is not lost."""
     # #2485 skew on the input side: node_link_graph restores only the nested
     # graph-attrs slot, so an input whose hyperedges live only at the top
     # level used to lose them entirely.

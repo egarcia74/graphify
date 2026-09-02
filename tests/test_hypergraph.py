@@ -111,6 +111,7 @@ def test_build_from_json_missing_hyperedges_key():
 # ---------------------------------------------------------------------------
 
 def test_attach_hyperedges_adds_new():
+    """A fresh hyperedge is stored in the graph's metadata."""
     G = nx.Graph()
     G.add_nodes_from(["A", "B", "C"])
     attach_hyperedges(G, [{"id": "auth_flow", "label": "Auth Flow", "nodes": ["A", "B", "C"]}])
@@ -118,6 +119,7 @@ def test_attach_hyperedges_adds_new():
 
 
 def test_attach_hyperedges_deduplicates():
+    """Attaching the same id twice must not duplicate the entry."""
     G = nx.Graph()
     G.add_nodes_from(["A", "B", "C"])
     h = {"id": "auth_flow", "label": "Auth Flow", "nodes": ["A", "B", "C"]}
@@ -127,6 +129,7 @@ def test_attach_hyperedges_deduplicates():
 
 
 def test_attach_hyperedges_multiple_different_ids():
+    """Distinct ids all land in the metadata list."""
     G = nx.Graph()
     G.add_nodes_from(["A", "B", "C", "D", "E", "F"])
     attach_hyperedges(G, [
@@ -137,6 +140,7 @@ def test_attach_hyperedges_multiple_different_ids():
 
 
 def test_attach_hyperedges_skips_entry_without_id():
+    """An id-less incoming entry is not attached."""
     G = nx.Graph()
     G.add_nodes_from(["A", "B", "C"])
     attach_hyperedges(G, [{"label": "No ID", "nodes": ["A", "B", "C"]}])
@@ -144,6 +148,7 @@ def test_attach_hyperedges_skips_entry_without_id():
 
 
 def test_attach_hyperedges_tolerates_id_less_persisted():
+    """#2775: an id-less entry already persisted must not raise KeyError."""
     # Regression for #2775: the semantic extractor emits hyperedges with no `id`
     # and build.py persists them verbatim, so a prior graph.json can carry id-less
     # hyperedges. On the next (incremental) run, attach_hyperedges read that
@@ -183,6 +188,7 @@ def test_attach_hyperedges_treats_empty_id_as_id_less():
 
 
 def test_attach_hyperedges_drops_legacy_two_member_entries():
+    """A two-member group persisted by an older version is pruned on attach."""
     G = nx.Graph()
     G.add_nodes_from(["a", "b", "c"])
     G.graph["hyperedges"] = [{"id": "legacy_pair", "nodes": ["a", "b"]}]
@@ -290,6 +296,7 @@ def test_canonical_hyperedge_rejects_a_member_less_entry(node_ids):
 
 @pytest.mark.parametrize("he", ["not-a-dict", None, 7, ["a", "b", "c"]])
 def test_canonical_hyperedge_rejects_a_non_dict(he):
+    """Anything that is not a dict is not a hyperedge."""
     assert canonical_hyperedge(he) is None
 
 
@@ -432,6 +439,7 @@ def test_build_normalizes_member_aliases_to_nodes():
 
 
 def test_build_dedups_alias_members_preserving_order():
+    """Alias members are deduped in first-seen order."""
     extraction = {
         "nodes": [
             {"id": "a", "label": "A", "file_type": "code", "source_file": "m.py"},
@@ -447,6 +455,7 @@ def test_build_dedups_alias_members_preserving_order():
 
 
 def test_build_canonical_nodes_wins_over_alias():
+    """When both are present the canonical `nodes` key wins and the alias is dropped."""
     extraction = {
         "nodes": [
             {"id": "a", "label": "A", "file_type": "code", "source_file": "m.py"},

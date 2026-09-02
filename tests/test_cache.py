@@ -1516,6 +1516,7 @@ def test_save_semantic_cache_merge_existing_prunes_only_incoming(tmp_path):
 
 
 def test_save_semantic_cache_merge_existing_heals_legacy_pair(tmp_path):
+    """A two-member group already on disk is pruned when the entry is next merged."""
     from graphify.cache import load_cached, save_semantic_cache
 
     doc = tmp_path / "doc.md"

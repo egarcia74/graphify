@@ -19,6 +19,7 @@ def _node(nid: str) -> dict:
 
 
 def test_dict_members_coerced_via_canonical_nodes_key(capsys):
+    """#2486: object members on the canonical key are coerced to ids and deduped."""
     extraction = {
         "nodes": [_node("a_ts"), _node("b_ts"), _node("c_ts")],
         "edges": [],
@@ -37,6 +38,7 @@ def test_dict_members_coerced_via_canonical_nodes_key(capsys):
 
 
 def test_dict_members_coerced_via_members_alias(capsys):
+    """The same coercion applies when members arrive under the `members` alias."""
     extraction = {
         "nodes": [_node("a_ts"), _node("b_ts"), _node("c_ts")],
         "edges": [],
@@ -51,6 +53,7 @@ def test_dict_members_coerced_via_members_alias(capsys):
 
 
 def test_member_object_without_id_dropped_with_one_warning(capsys):
+    """A member object carrying no usable id is dropped, warning exactly once."""
     extraction = {
         "nodes": [_node("a_ts"), _node("b_ts"), _node("c_ts"), _node("d_ts")],
         "edges": [],
@@ -72,6 +75,7 @@ def test_member_object_without_id_dropped_with_one_warning(capsys):
 
 
 def test_hyperedge_losing_all_members_is_dropped_not_fatal(capsys):
+    """Losing every member drops the hyperedge instead of aborting the build."""
     extraction = {
         "nodes": [_node("a_ts")],
         "edges": [],

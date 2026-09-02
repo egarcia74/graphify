@@ -115,6 +115,7 @@ def test_member_order_is_preserved():
 
 
 def test_object_members_keep_their_other_fields():
+    """Remapping an object-shaped member must preserve its non-id fields."""
     hes = [{
         "id": "h",
         "nodes": [

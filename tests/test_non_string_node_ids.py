@@ -77,6 +77,7 @@ def test_legacy_from_to_endpoints_are_coerced():
 
 
 def test_hyperedge_members_are_coerced_with_their_nodes():
+    """#2326: a numeric member is str-coerced alongside its node id."""
     ext = {
         "nodes": [_node(10, "Alpha"), _node("b", "Beta"), _node("c", "Gamma")],
         "edges": [],

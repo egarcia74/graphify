@@ -37,6 +37,7 @@ def _he_ids(G) -> set[str]:
 # ── #1574: hyperedge preservation ─────────────────────────────────────────────
 
 def _seed_two_file_graph(tmp_path):
+    """Write a two-file graph.json with per-file and cross-file hyperedges."""
     root = tmp_path / "corpus"
     root.mkdir()
     graph_path = tmp_path / "graph.json"
@@ -58,6 +59,7 @@ def _seed_two_file_graph(tmp_path):
 
 
 def test_update_preserves_hyperedges_of_unchanged_files(tmp_path):
+    """#1574: an unchanged file's hyperedges must survive an incremental update."""
     root, graph_path = _seed_two_file_graph(tmp_path)
     # Re-extract only b.md, with a fresh hyperedge for it.
     new_chunk = {
@@ -96,6 +98,7 @@ def test_update_without_root_still_preserves_hyperedges(tmp_path):
 
 
 def test_deleted_file_hyperedges_are_pruned(tmp_path):
+    """A deleted file's own hyperedges go, and a cross-file group left under the minimum goes with them."""
     root, graph_path = _seed_two_file_graph(tmp_path)
     deleted_abs = [str(root / "a.md")]
     G = build_merge([], graph_path, prune_sources=deleted_abs, dedup=False, root=root)
@@ -110,6 +113,7 @@ def test_deleted_file_hyperedges_are_pruned(tmp_path):
 # ── minimum cardinality on a plain --update (no prune_sources) ───────────────
 
 def _seed_single_node_graph(tmp_path, nodes):
+    """Write a graph.json holding just *nodes* and no hyperedges."""
     root = tmp_path / "corpus"
     root.mkdir()
     graph_path = tmp_path / "graph.json"
@@ -148,6 +152,7 @@ def _fake_build_returning(hyperedges):
     """Stand-in for build(): the seeded nodes (so the #479 shrink guard stays quiet)
     plus whatever hyperedge metadata the test wants to smuggle past build()."""
     def fake_build(*args, **kwargs):
+        """Stand in for build(), returning the seeded nodes plus canned hyperedge metadata."""
         G = nx.Graph()
         for n in _TWO_NODES:
             G.add_node(n["id"], **n)

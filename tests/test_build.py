@@ -1580,6 +1580,7 @@ def test_build_from_json_prunes_dangling_hyperedge_members(capsys):
 
 
 def _doc(nid: str, label: str, source_file: str) -> dict:
+    """Build a document-tier node dict."""
     return {"id": nid, "label": label, "file_type": "document", "source_file": source_file}
 
 

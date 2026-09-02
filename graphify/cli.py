@@ -1108,6 +1108,12 @@ def _reenter_main() -> None:
 
 
 def dispatch_command(cmd: str) -> None:
+    """Run the subcommand named *cmd*, reading its flags from ``sys.argv``.
+
+    The single entry point every ``graphify <cmd>`` invocation goes through.
+    Each branch parses its own arguments and exits via ``sys.exit`` rather than
+    returning a status, so callers get the process exit code directly.
+    """
     if cmd == "provider":
         from graphify.llm import _custom_providers_path, BACKENDS
         import json as _json
