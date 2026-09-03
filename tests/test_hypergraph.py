@@ -356,6 +356,17 @@ def test_canonical_hyperedge_keeps_a_group_exactly_at_the_minimum():
     assert canonical_hyperedge({"id": "h", "nodes": members[:-1]}) is None
 
 
+def test_to_json_tolerates_non_list_hyperedge_metadata(tmp_path):
+    """A direct caller can leave `G.graph["hyperedges"]` as None; iterating it
+    raised TypeError before the graph was written at all."""
+    G = nx.Graph()
+    G.add_nodes_from(["a", "b", "c"])
+    G.graph["hyperedges"] = None
+    out = tmp_path / "graph.json"
+    assert to_json(G, {0: ["a", "b", "c"]}, str(out))
+    assert json.loads(out.read_text(encoding="utf-8"))["hyperedges"] == []
+
+
 def test_to_json_gates_hyperedges_written_by_a_direct_caller(tmp_path):
     """to_json is public API and the final persistence boundary. A library caller
     that populates G.graph["hyperedges"] itself bypasses build_from_json,

@@ -14,7 +14,11 @@ import json
 import re
 from pathlib import Path
 
-from .build import _has_minimum_hyperedge_members, _normalize_hyperedge_members
+from .build import (
+    _has_minimum_hyperedge_members,
+    _normalize_hyperedge_members,
+    node_id_set,
+)
 
 # Labels longer than this many characters, or containing >= this many words,
 # are candidates for being sentence-like rationale text rather than entity names.
@@ -272,8 +276,10 @@ def sanitize_semantic_fragment(fragment: dict) -> dict:
         keep_edges.append(e)
 
     # ---- pass 4: filter hyperedges to surviving node IDs --------------------
-    surviving_ids: set[str] = {n.get("id", "") for n in keep_nodes}
-    surviving_ids.discard("")
+    # Coerced, because _normalize_hyperedge_members coerces the member refs:
+    # keyed raw, a numeric node id never matches its own member and every
+    # member of a valid group is filtered out below.
+    surviving_ids = node_id_set(keep_nodes)
     keep_hyperedges: list[dict] = []
     for he in hyperedges:
         if not isinstance(he, dict):

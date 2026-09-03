@@ -15,7 +15,12 @@ import networkx as nx
 from networkx.readwrite import json_graph
 from graphify.security import sanitize_label
 from graphify.analyze import _node_community_map
-from graphify.build import MIN_HYPEREDGE_MEMBERS, canonical_hyperedge, edge_data, node_id_set
+from graphify.build import (
+    MIN_HYPEREDGE_MEMBERS,
+    canonical_hyperedge,
+    edge_data,
+    gate_hyperedges_against_graph,
+)
 from graphify.paths import stem_filename_budget
 
 from graphify.exporters.graphdb import push_to_falkordb, push_to_neo4j  # noqa: E402,F401
@@ -180,10 +185,6 @@ _CONFIDENCE_SCORE_DEFAULTS = {"EXTRACTED": 1.0, "INFERRED": 0.55, "AMBIGUOUS": 0
 def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
     """Store hyperedges in the graph's metadata dict."""
 
-    # Built once: canonical_hyperedge walks a non-set container on every call,
-    # and this gates two lists.
-    _ids = node_id_set({"id": n} for n in G)
-
     def valid_candidate(h: object) -> dict | None:
         """Canonicalize *h* against G's nodes, or None when it is not a group.
 
@@ -191,7 +192,8 @@ def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
         build_from_json in between, so the shared gate does the alias fold,
         member coercion and dedupe before filtering to nodes G actually has.
         """
-        return canonical_hyperedge(h, _ids)
+        kept, _ = gate_hyperedges_against_graph([h], G)
+        return kept[0] if kept else None
 
     existing = [
         candidate
@@ -435,16 +437,15 @@ def to_json(G: nx.Graph, communities: dict[int, list[str]], output_path: str, *,
     # The #2485 absent-vs-empty warning above is unaffected — it keys on the
     # metadata key being missing from G.graph, which this does not touch.
     _raw_hyperedges = getattr(G, "graph", {}).get("hyperedges", [])
-    _write_ids = node_id_set({"id": n} for n in G)
-    _valid_hyperedges = [
-        candidate
-        for h in _raw_hyperedges
-        if (candidate := canonical_hyperedge(h, _write_ids)) is not None
-    ]
-    if len(_valid_hyperedges) != len(_raw_hyperedges):
+    if not isinstance(_raw_hyperedges, list):
+        # A direct caller can leave this as None; iterating it raised TypeError
+        # before the graph was written at all.
+        _raw_hyperedges = []
+    _valid_hyperedges, _dropped_hyperedges = gate_hyperedges_against_graph(_raw_hyperedges, G)
+    if _dropped_hyperedges:
         print(
             f"[graphify] WARNING: dropping "
-            f"{len(_raw_hyperedges) - len(_valid_hyperedges)} hyperedge(s) with "
+            f"{_dropped_hyperedges} hyperedge(s) with "
             f"fewer than {MIN_HYPEREDGE_MEMBERS} members backed by graph nodes "
             f"while writing {output_path}.",
             file=sys.stderr,

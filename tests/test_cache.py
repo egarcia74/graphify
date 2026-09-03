@@ -1345,7 +1345,10 @@ def test_save_semantic_cache_drops_hyperedges_touching_skipped_nodes(tmp_path):
         {"id": "stray", "source_file": "outside.md"},
     ]
     hyperedges = [
-        {"id": "he_bad", "nodes": ["kept", "stray"], "source_file": "allowed.md"},
+        # Three members, so the cardinality gate keeps it and the assertion
+        # below is actually testing the skipped-node prune rather than passing
+        # because a pair was dropped first.
+        {"id": "he_bad", "nodes": ["kept", "kept2", "stray"], "source_file": "allowed.md"},
         {
             "id": "he_ok",
             "nodes": ["kept", "kept2", "kept3"],

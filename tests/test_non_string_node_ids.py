@@ -122,6 +122,53 @@ def test_graph_container_membership_uses_the_coerced_id_space():
     assert [h["id"] for h in json.loads(out.read_text())["hyperedges"]] == ["g"]
 
 
+def test_to_json_writes_members_in_the_graphs_own_id_space():
+    """Coercing only the comparison side left graph.json internally inconsistent:
+    node_link_data writes `{"id": 7}` while the surviving member reads `"7"`, so
+    the written file carries a dangling member — the very shape #1916 removed.
+    Whatever the gate keeps has to come back out in the node ids' own space."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import networkx as nx
+
+    from graphify.export import to_json
+
+    G = nx.Graph()
+    G.add_nodes_from([7, 8, 9])
+    G.graph["hyperedges"] = [{"id": "g", "nodes": [7, 8, 9]}]
+    out = Path(tempfile.mkdtemp()) / "graph.json"
+    to_json(G, {0: [7, 8, 9]}, str(out))
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    node_ids = {n["id"] for n in data["nodes"]}
+    assert data["hyperedges"], "the group must survive"
+    members = data["hyperedges"][0]["nodes"]
+    assert set(members) <= node_ids, (
+        f"members {members} must name nodes actually written {sorted(node_ids, key=str)}"
+    )
+
+
+def test_semantic_cleanup_keeps_a_group_over_numeric_node_ids():
+    """`_normalize_hyperedge_members` coerces members to strings, so the
+    surviving-id set has to be built in the same space or every member of a
+    valid numeric group is filtered out and the group dropped."""
+    from graphify.semantic_cleanup import sanitize_semantic_fragment
+
+    fragment = {
+        "nodes": [
+            {"id": n, "label": f"N{n}", "file_type": "code", "source_file": "a.py"}
+            for n in (7, 8, 9)
+        ],
+        "edges": [],
+        "hyperedges": [{"id": "g", "nodes": [7, 8, 9]}],
+    }
+    out = sanitize_semantic_fragment(fragment)
+    assert [h["id"] for h in out["hyperedges"]] == ["g"]
+    assert out["hyperedges"][0]["nodes"] == ["7", "8", "9"]
+
+
 def test_prefix_graph_for_global_builds_the_relabel_map_once(monkeypatch):
     """The coerced relabel map must be built once per graph, not once per
     hyperedge — rebuilding it inside the loop makes prefixing O(nodes x
@@ -134,6 +181,7 @@ def test_prefix_graph_for_global_builds_the_relabel_map_once(monkeypatch):
     real = buildmod._coerce_id
 
     def counting(value):
+        """Count every _coerce_id call so the map rebuild is detectable."""
         calls["n"] += 1
         return real(value)
 

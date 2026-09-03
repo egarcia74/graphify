@@ -157,6 +157,31 @@ def gate_hyperedges(
     return kept, len(incoming) - len(kept)
 
 
+def gate_hyperedges_against_graph(
+    hyperedges: object, G: object,
+) -> "tuple[list[dict], int]":
+    """Gate *hyperedges* against *G*'s nodes, in *G*'s own id space.
+
+    Members are coerced before comparison, so a numeric node id has to be
+    coerced too or nothing matches. But the surviving members must then be
+    handed back in the ids the graph actually uses: ``node_link_data`` writes
+    ``{"id": 7}``, and a member left as ``"7"`` is a dangling reference in the
+    written file — the shape #1916 removed. So compare coerced, return raw.
+
+    Returns the survivors and how many were cut, like :func:`gate_hyperedges`.
+    """
+    raw_by_coerced = {_coerce_id(n): n for n in (G or ())}
+    incoming = list(hyperedges or ())
+    kept: list[dict] = []
+    for he in incoming:
+        candidate = canonical_hyperedge(he, set(raw_by_coerced))
+        if candidate is None:
+            continue
+        candidate["nodes"] = [raw_by_coerced.get(m, m) for m in candidate["nodes"]]
+        kept.append(candidate)
+    return kept, len(incoming) - len(kept)
+
+
 def _is_ast_tier(item: dict) -> bool:
     """AST vs semantic tier. _origin wins when present; unstamped legacy items
     (pre-0.9.16) fall back to shape: deterministic extractors emit
