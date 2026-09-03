@@ -17,7 +17,6 @@ from graphify.security import sanitize_label
 from graphify.analyze import _node_community_map
 from graphify.build import (
     MIN_HYPEREDGE_MEMBERS,
-    canonical_hyperedge,
     edge_data,
     gate_hyperedges_against_graph,
 )
@@ -183,23 +182,18 @@ _CONFIDENCE_SCORE_DEFAULTS = {"EXTRACTED": 1.0, "INFERRED": 0.55, "AMBIGUOUS": 0
 
 
 def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
-    """Store hyperedges in the graph's metadata dict."""
+    """Store hyperedges in the graph's metadata dict.
 
-    def valid_candidate(h: object) -> dict | None:
-        """Canonicalize *h* against G's nodes, or None when it is not a group.
+    merge-graphs hands persisted metadata straight to this boundary with no
+    build_from_json in between, so the shared gate does the alias fold, member
+    coercion and dedupe before filtering to nodes G actually has.
 
-        merge-graphs hands persisted metadata straight to this boundary with no
-        build_from_json in between, so the shared gate does the alias fold,
-        member coercion and dedupe before filtering to nodes G actually has.
-        """
-        kept, _ = gate_hyperedges_against_graph([h], G)
-        return kept[0] if kept else None
-
-    existing = [
-        candidate
-        for h in G.graph.get("hyperedges", [])
-        if (candidate := valid_candidate(h)) is not None
-    ]
+    Both lists are gated whole rather than one candidate at a time: the gate
+    walks G's nodes once per call to build its id map, so per-candidate gating
+    would cost O(nodes x hyperedges) on exactly the merged, thousands-of-groups
+    corpora this boundary exists for.
+    """
+    existing, _ = gate_hyperedges_against_graph(G.graph.get("hyperedges", []), G)
     # Skip id-less persisted entries when seeding the dedup set (#2775): the
     # semantic extractor emits hyperedges with no `id` and build.py persists them
     # verbatim, so a prior graph.json can contain id-less hyperedges. A hard
@@ -207,10 +201,8 @@ def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
     # symmetric with the `.get("id")` guard the loop below already applies to the
     # incoming set.
     seen_ids = {h["id"] for h in existing if h.get("id")}
-    for h in hyperedges:
-        candidate = valid_candidate(h)
-        if candidate is None:
-            continue
+    incoming, _ = gate_hyperedges_against_graph(hyperedges, G)
+    for candidate in incoming:
         if candidate.get("id") and candidate["id"] not in seen_ids:
             existing.append(candidate)
             seen_ids.add(candidate["id"])

@@ -88,7 +88,76 @@ def test_node_id_set_coerces_numeric_ids_like_members_are():
 
     kept, dropped = gate_hyperedges([{"id": "g", "nodes": [7, 8, 9]}], nodes)
     assert dropped == 0, "a group over numeric node ids must survive"
-    assert kept[0]["nodes"] == ["7", "8", "9"]
+    assert kept[0]["nodes"] == [7, 8, 9], (
+        "the raw writers persist `nodes` unchanged, so surviving members have "
+        "to come back in the node list's own id space"
+    )
+
+
+def test_gate_hyperedges_returns_members_in_the_node_lists_own_id_space():
+    """The raw `--no-cluster` writers gate against the node records they are
+    about to persist and write those records unchanged. Coercing only the
+    comparison side left the file holding nodes `[7, 8, 9]` and members
+    `["7", "8", "9"]` — a dangling reference, the shape #1916 removed, written
+    by the gate that exists to prevent it. Compare coerced, return raw."""
+    from graphify.build import gate_hyperedges
+    from graphify.watch import _gated_hyperedges
+
+    nodes = [{"id": 7}, {"id": 8}, {"id": 9}]
+    written_ids = {n["id"] for n in nodes}
+
+    kept, _ = gate_hyperedges([{"id": "g", "nodes": [7, 8, 9]}], nodes)
+    assert set(kept[0]["nodes"]) <= written_ids, (
+        f"members {kept[0]['nodes']} must name nodes actually written "
+        f"{sorted(written_ids, key=str)}"
+    )
+
+    # watch's raw writer shares the gate and writes the same node records.
+    members = _gated_hyperedges([{"id": "g", "nodes": [7, 8, 9]}], nodes)[0]["nodes"]
+    assert set(members) <= written_ids
+
+
+def test_prune_graph_json_sources_keeps_the_files_own_node_id_space():
+    """An externally produced or legacy graph.json can carry numeric node ids.
+    The pruner rewrites hyperedges but leaves the node records alone, so a
+    coerced member list would turn a valid group into a dangling one on disk."""
+    import json
+
+    from graphify.cli import _prune_graph_json_sources
+
+    graph_path = tmp_graph_json(
+        nodes=[
+            {"id": 7, "source_file": "a.py"},
+            {"id": 8, "source_file": "a.py"},
+            {"id": 9, "source_file": "a.py"},
+            {"id": 99, "source_file": "gone.py"},
+        ],
+        hyperedges=[{"id": "g", "source_file": "a.py", "nodes": [7, 8, 9, 99]}],
+    )
+    _prune_graph_json_sources(graph_path, ["gone.py"])
+
+    data = json.loads(graph_path.read_text(encoding="utf-8"))
+    node_ids = {n["id"] for n in data["nodes"]}
+    members = data["hyperedges"][0]["nodes"]
+    assert node_ids == {7, 8, 9}, "the stale source's node is pruned"
+    assert set(members) <= node_ids, (
+        f"members {members} must name nodes actually written "
+        f"{sorted(node_ids, key=str)}"
+    )
+
+
+def tmp_graph_json(*, nodes, hyperedges):
+    """Write a minimal hand-authored graph.json and return its path."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    path = Path(tempfile.mkdtemp()) / "graph.json"
+    path.write_text(
+        json.dumps({"nodes": nodes, "edges": [], "hyperedges": hyperedges}),
+        encoding="utf-8",
+    )
+    return path
 
 
 def test_graph_container_membership_uses_the_coerced_id_space():
@@ -199,6 +268,39 @@ def test_prefix_graph_for_global_builds_the_relabel_map_once(monkeypatch):
     # it per hyperedge costs 50 x 20 = 1000 extra coercions on its own.
     assert calls["n"] < 500, (
         f"_coerce_id called {calls['n']} times — the relabel map is being "
+        f"rebuilt per hyperedge"
+    )
+
+
+def test_attach_hyperedges_builds_the_graph_id_map_once(monkeypatch):
+    """Same defect class as the prefix_graph_for_global map above, in the other
+    direction: gating one candidate at a time rebuilt the graph's coerced id map
+    for every hyperedge, so merge-graphs went from linear to O(nodes x groups)
+    on exactly the thousands-of-groups corpora this gate was added for."""
+    import networkx as nx
+
+    import graphify.build as buildmod
+    from graphify.export import attach_hyperedges
+
+    calls = {"n": 0}
+    real = buildmod._coerce_id
+
+    def counting(value):
+        """Count every _coerce_id call so a per-candidate rebuild is visible."""
+        calls["n"] += 1
+        return real(value)
+
+    monkeypatch.setattr(buildmod, "_coerce_id", counting)
+
+    G = nx.Graph()
+    G.add_nodes_from(range(50))
+    attach_hyperedges(G, [{"id": f"h{i}", "nodes": [0, 1, 2]} for i in range(20)])
+
+    assert [h["id"] for h in G.graph["hyperedges"]] == [f"h{i}" for i in range(20)]
+    # 50 nodes + 20 groups x 3 members = 110 with the map built once; per
+    # candidate it costs 50 x 20 = 1000 extra coercions on its own.
+    assert calls["n"] < 500, (
+        f"_coerce_id called {calls['n']} times — the graph id map is being "
         f"rebuilt per hyperedge"
     )
 

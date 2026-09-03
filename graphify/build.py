@@ -111,8 +111,46 @@ def canonical_hyperedge(he: object, node_ids: object = None) -> "dict | None":
     return he if _has_minimum_hyperedge_members(he) else None
 
 
+def _id_map(ids: object) -> dict:
+    """Map each raw node id in *ids* to itself, keyed by its coerced form.
+
+    The one place the two id spaces are bridged. Member refs are coerced by
+    ``_normalize_hyperedge_members``, so membership has to be tested in the
+    coerced space — but whatever survives has to be handed back in the ids the
+    caller is actually persisting, or the written file names members no node
+    has. Compare coerced, return raw.
+
+    First writer wins, except that an id already equal to its coerced form is
+    preferred: with both ``7`` and ``"7"`` present they are two distinct nodes
+    that collapse to one key, and the exact match is the honest answer.
+
+    ``None`` and unhashable ids are skipped, for the reasons in
+    :func:`node_id_set`.
+    """
+    out: dict = {}
+    for raw in ids or ():
+        if raw is None or not _hashable(raw):
+            continue
+        key = _coerce_id(raw)
+        if key not in out or (raw == key and out[key] != key):
+            out[key] = raw
+    return out
+
+
+def node_id_map(nodes: object) -> dict:
+    """:func:`_id_map` over node *records* — the shape writers hold node lists in.
+
+    A non-dict entry and an id-less node contribute nothing; only ``n["id"]``
+    is an id here. ``_id_map`` alone cannot tell the two shapes apart, and
+    guessing wrong would read a malformed list entry as a node id.
+    """
+    return _id_map(
+        n["id"] for n in (nodes or ()) if isinstance(n, dict) and "id" in n
+    )
+
+
 def node_id_set(nodes: object) -> set:
-    """Collect the ids from *nodes* that a hyperedge member could name.
+    """Collect the ids from node records *nodes* that a member could name.
 
     Ids are coerced with :func:`_coerce_id`, the same normalization member refs
     receive, so the two sides are compared in one space. Without it a numeric
@@ -125,11 +163,41 @@ def node_id_set(nodes: object) -> set:
     build path for the validator to report, and putting one in a set raises;
     ``None`` is skipped for the same reason it is not a usable member — it would
     let a null member count towards the minimum.
+
+    Use this where only membership is asked. Where survivors are written back
+    out next to the nodes, gate through :func:`gate_hyperedges` instead, which
+    keeps the ids in the caller's own space.
     """
-    return {
-        _coerce_id(n["id"]) for n in (nodes or ())
-        if isinstance(n, dict) and n.get("id") is not None and _hashable(n.get("id"))
-    }
+    return set(node_id_map(nodes))
+
+
+def _gate(hyperedges: object, raw_by_coerced: "dict | None") -> "tuple[list[dict], int]":
+    """Canonicalize *hyperedges* against a prebuilt id map, survivors first.
+
+    Takes the map rather than the container so a caller gating many groups walks
+    its nodes once. Rebuilding per candidate is what turns a linear gate into
+    O(nodes x hyperedges), which on a merged corpus of thousands of groups is
+    the whole cost of the operation.
+
+    Pass None for the map where no node set exists — the semantic cache stores
+    per-file fragments, and the pre-manifest-stamp gate runs before the final
+    node set is known — in which case only shape and distinct cardinality are
+    checked and members stay in their coerced form.
+    """
+    incoming = list(hyperedges or ())
+    node_ids = None if raw_by_coerced is None else set(raw_by_coerced)
+    kept: list[dict] = []
+    for he in incoming:
+        candidate = canonical_hyperedge(he, node_ids)
+        if candidate is None:
+            continue
+        if raw_by_coerced is not None:
+            # Every survivor is in `node_ids`, which is exactly this map's keys,
+            # so indexing cannot miss — no silent `.get(m, m)` fallback that
+            # would put a coerced id back into a raw id space.
+            candidate["nodes"] = [raw_by_coerced[m] for m in candidate["nodes"]]
+        kept.append(candidate)
+    return kept, len(incoming) - len(kept)
 
 
 def gate_hyperedges(
@@ -137,24 +205,16 @@ def gate_hyperedges(
 ) -> "tuple[list[dict], int]":
     """Canonicalize *hyperedges*, returning the survivors and how many were cut.
 
-    The shared shape of every writer's gate. Pass the node list about to be
-    persisted to filter members by membership; pass None where no node set
-    exists — the semantic cache stores per-file fragments, and the
-    pre-manifest-stamp gate runs before the final node set is known — in which
-    case only shape and distinct cardinality are checked.
+    The shared shape of every writer's gate. Pass the node *records* about to be
+    persisted to filter members by membership; survivors come back in those
+    records' own id space, because the raw ``--no-cluster`` writers persist the
+    records unchanged. Pass None where no node set exists.
 
     Returns the count rather than logging, because the callers word their own
     messages: the raw writer, the exclusion-only prune and the pre-stamp gate
     each say something different about what the drop means.
     """
-    incoming = list(hyperedges or ())
-    node_ids = node_id_set(nodes) if nodes is not None else None
-    kept = [
-        candidate
-        for he in incoming
-        if (candidate := canonical_hyperedge(he, node_ids)) is not None
-    ]
-    return kept, len(incoming) - len(kept)
+    return _gate(hyperedges, node_id_map(nodes) if nodes is not None else None)
 
 
 def gate_hyperedges_against_graph(
@@ -162,24 +222,14 @@ def gate_hyperedges_against_graph(
 ) -> "tuple[list[dict], int]":
     """Gate *hyperedges* against *G*'s nodes, in *G*'s own id space.
 
-    Members are coerced before comparison, so a numeric node id has to be
-    coerced too or nothing matches. But the surviving members must then be
-    handed back in the ids the graph actually uses: ``node_link_data`` writes
-    ``{"id": 7}``, and a member left as ``"7"`` is a dangling reference in the
-    written file — the shape #1916 removed. So compare coerced, return raw.
+    :func:`gate_hyperedges` for callers whose container is a graph rather than a
+    node list — iterating an ``nx.Graph`` yields the ids themselves. The id
+    space matters just as much here: ``node_link_data`` writes ``{"id": 7}``,
+    and a member left as ``"7"`` is a dangling reference in the written file.
 
-    Returns the survivors and how many were cut, like :func:`gate_hyperedges`.
+    Gate whole lists, not one candidate at a time — the map is built per call.
     """
-    raw_by_coerced = {_coerce_id(n): n for n in (G or ())}
-    incoming = list(hyperedges or ())
-    kept: list[dict] = []
-    for he in incoming:
-        candidate = canonical_hyperedge(he, set(raw_by_coerced))
-        if candidate is None:
-            continue
-        candidate["nodes"] = [raw_by_coerced.get(m, m) for m in candidate["nodes"]]
-        kept.append(candidate)
-    return kept, len(incoming) - len(kept)
+    return _gate(hyperedges, _id_map(G or ()))
 
 
 def _is_ast_tier(item: dict) -> bool:
@@ -2213,12 +2263,9 @@ def build_merge(
     # hyperedges but the graph carries none" warning on the key being ABSENT.
     # Manufacturing an empty list here would silence that diagnostic.
     if "hyperedges" in G.graph:
-        _final_ids = node_id_set({"id": n} for n in G)
-        G.graph["hyperedges"] = [
-            candidate
-            for he in G.graph.get("hyperedges", [])
-            if (candidate := canonical_hyperedge(he, _final_ids)) is not None
-        ]
+        G.graph["hyperedges"], _ = gate_hyperedges_against_graph(
+            G.graph.get("hyperedges", []), G,
+        )
 
     # Safety check: refuse to SILENTLY drop nodes (#479, reworked in #2497).
     # The old count comparison ran against the post-replace `existing_nodes`,
